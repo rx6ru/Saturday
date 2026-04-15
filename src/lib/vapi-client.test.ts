@@ -8,7 +8,7 @@ jest.mock('@vapi-ai/server-sdk', () => {
   return {
     VapiClient: jest.fn().mockImplementation(() => mockClient),
   };
-});
+}, { virtual: true });
 
 describe('VapiService (TDD)', () => {
   const apiKey = 'test-api-key';
