@@ -1,9 +1,8 @@
-![Saturday](Saturday.png)                     
-
 Talk to your codebase.
 
 Saturday is a small CLI that indexes a project into Qdrant, exposes a local search
-webhook, and connects it to a Vapi voice assistant.
+webhook, and connects it to a Vapi voice assistant. The command UX uses Clack for
+interactive setup and cleaner progress output.
 
 ```text
         your repo              vector store             voice UI
@@ -52,6 +51,9 @@ saturday serve
 
 Then open the URL printed by `saturday serve`.
 
+If you run `saturday init` in a real TTY, Saturday walks you through setup with
+Clack prompts instead of forcing every option on the command line.
+
 ## Commands
 
 ```bash
@@ -59,6 +61,12 @@ saturday init   # write .saturday.config.json and prepare Qdrant
 saturday sync   # chunk files, embed changed chunks, upload to Qdrant
 saturday serve  # start the web UI and create a Vapi assistant
 ```
+
+CLI behavior:
+
+- `init` uses Clack prompts when values are missing
+- `sync` shows a compact progress flow and summary
+- `serve` shows a cleaner startup flow with endpoint output
 
 ## Configuration
 
