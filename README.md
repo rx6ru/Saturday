@@ -1,6 +1,23 @@
 # Saturday
 
-Saturday turns any codebase into a voice-queryable knowledge base.
+Talk to your codebase.
+
+Saturday is a small CLI that indexes a project into Qdrant, exposes a local search
+webhook, and connects it to a Vapi voice assistant.
+
+```text
+        your repo              vector store             voice UI
+   +----------------+       +--------------+       +----------------+
+   | saturday sync  | ----> |   Qdrant     | <---- | /api/search    |
+   | code chunks    |       | embeddings   |       | Vapi tool call |
+   +----------------+       +--------------+       +----------------+
+            ^                                             |
+            |                                             v
+   +----------------+                              +----------------+
+   | .saturday      |                              | browser + Vapi |
+   | config         |                              | speak, ask     |
+   +----------------+                              +----------------+
+```
 
 ## Install
 
@@ -8,18 +25,17 @@ Saturday turns any codebase into a voice-queryable knowledge base.
 npm install -g saturday
 ```
 
-## Requirements
+Requirements:
 
-- Node.js 18 or newer
-- `ngrok` installed and available on `PATH`
-- Vapi public and private keys
-- Qdrant URL and API key
-- OpenAI or Gemini API key for embeddings
-- Optional Groq or Cerebras API key if you want Vapi to use those as the assistant LLM
+- Node.js 18+
+- `ngrok` on `PATH`
+- Vapi public/private keys
+- Qdrant URL/API key
+- OpenAI or Gemini key for embeddings
 
-## Quick start
+## Quick Start
 
-From the project you want to index:
+Run this inside the project you want to query:
 
 ```bash
 saturday init \
@@ -34,18 +50,43 @@ saturday sync
 saturday serve
 ```
 
-This creates `.saturday.config.json`, indexes the configured files into Qdrant, starts the local web server, creates a Vapi assistant, and prints the public URL.
+Then open the URL printed by `saturday serve`.
 
-## Model providers
+## Commands
 
-Saturday has two separate model choices:
+```bash
+saturday init   # write .saturday.config.json and prepare Qdrant
+saturday sync   # chunk files, embed changed chunks, upload to Qdrant
+saturday serve  # start the web UI and create a Vapi assistant
+```
 
-- Assistant model: the LLM Vapi uses during the voice conversation.
-- Embedding model: the model Saturday uses while indexing and searching your codebase.
+## Configuration
 
-### Assistant LLM examples
+Saturday writes `.saturday.config.json`. It is ignored by git because it contains
+provider keys.
 
-Use OpenAI through Vapi:
+Default indexing:
+
+```json
+{
+  "include": ["src", "lib"],
+  "exclude": ["node_modules", ".git", "dist", "build"],
+  "extensions": [".ts", ".js", ".tsx", ".jsx", ".py", ".md"]
+}
+```
+
+## Models
+
+Saturday has two independent model choices.
+
+```text
+assistant model  -> Vapi conversation LLM
+embedding model  -> code indexing/search vectors
+```
+
+### Assistant LLM
+
+OpenAI through Vapi:
 
 ```bash
 saturday init \
@@ -53,7 +94,7 @@ saturday init \
   --assistant-model gpt-4o
 ```
 
-Use Groq through Vapi:
+Groq through Vapi:
 
 ```bash
 saturday init \
@@ -62,7 +103,7 @@ saturday init \
   --assistant-provider-api-key "$GROQ_API_KEY"
 ```
 
-Use Cerebras through Vapi:
+Cerebras through Vapi:
 
 ```bash
 saturday init \
@@ -71,7 +112,7 @@ saturday init \
   --assistant-provider-api-key "$CEREBRAS_API_KEY"
 ```
 
-Use any OpenAI-compatible endpoint through Vapi custom LLM:
+Any OpenAI-compatible endpoint:
 
 ```bash
 saturday init \
@@ -81,11 +122,12 @@ saturday init \
   --assistant-provider-api-key "$CEREBRAS_API_KEY"
 ```
 
-Vapi also lets you configure provider keys in the dashboard. If you already did that, you can omit `--assistant-provider-api-key`.
+If your provider key is already configured in the Vapi dashboard, omit
+`--assistant-provider-api-key`.
 
-### Embedding examples
+### Embeddings
 
-Use OpenAI embeddings:
+OpenAI:
 
 ```bash
 saturday init \
@@ -94,7 +136,7 @@ saturday init \
   --openai-key "$OPENAI_API_KEY"
 ```
 
-Use Gemini embeddings:
+Gemini:
 
 ```bash
 saturday init \
@@ -104,18 +146,16 @@ saturday init \
   --gemini-key "$GEMINI_API_KEY"
 ```
 
-Gemini supports `768`, `1536`, and `3072` output dimensions. Saturday normalizes Gemini vectors when using reduced dimensions.
+Gemini supports `768`, `1536`, and `3072` dimensions. Saturday normalizes reduced
+dimension vectors before writing them to Qdrant.
 
-## Commands
+## What Gets Published
 
-### `saturday init`
+The npm package contains only:
 
-Creates `.saturday.config.json` and prepares the Qdrant collection.
+- compiled CLI and library files in `dist/`
+- web assets in `dist/web/`
+- type declarations
+- this README
 
-### `saturday sync`
-
-Scans the configured source folders, chunks files, embeds new or changed chunks, and updates Qdrant.
-
-### `saturday serve`
-
-Starts the local server, exposes `/api/search` through ngrok, creates a Vapi assistant, and serves the voice UI.
+Tests and source files are not included in the published package.
