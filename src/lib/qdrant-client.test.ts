@@ -1,5 +1,5 @@
 import { mockDeep } from 'jest-mock-extended';
-import { QdrantCodeIndex, CodeChunkPayload } from './qdrant-client';
+import { QdrantCodeIndex, CodeChunkPayload, toQdrantPointId } from './qdrant-client';
 
 describe('QdrantCodeIndex (RED -> tests with mocks)', () => {
   const url = 'http://localhost:6333';
@@ -121,5 +121,12 @@ describe('QdrantCodeIndex (RED -> tests with mocks)', () => {
     const stats = await index.getStats();
     expect(stats.pointCount).toBe(42);
     expect(stats.status).toBe('green');
+  });
+
+  test('toQdrantPointId returns stable UUID-compatible ids', () => {
+    const id = toQdrantPointId('src/app.ts:1:50');
+
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(toQdrantPointId('src/app.ts:1:50')).toBe(id);
   });
 });

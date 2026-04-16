@@ -58,7 +58,10 @@ export async function runServe(options: ServeOptions): Promise<void> {
 
   const assistantId = await vapi.createAssistant({
     name: 'Saturday',
-    model: 'gpt-4o',
+    modelProvider: config.assistant?.model.provider || 'openai',
+    model: config.assistant?.model.model || 'gpt-4o',
+    modelUrl: config.assistant?.model.url,
+    providerApiKey: config.assistant?.model.apiKey,
     voiceId: 'Harry',
     toolId,
     systemPrompt:

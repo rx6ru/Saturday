@@ -1,7 +1,10 @@
 export interface AssistantConfig {
   name: string;
   systemPrompt?: string;
+  modelProvider?: string;
   model?: string;
+  modelUrl?: string;
+  providerApiKey?: string;
   voiceId?: string;
   toolId?: string;
   description?: string;
@@ -41,8 +44,9 @@ export class VapiService {
     const payload = {
       name: config.name,
       model: {
-        provider: 'openai',
+        provider: config.modelProvider || 'openai',
         model: config.model || 'gpt-4o',
+        ...(config.modelUrl ? { url: config.modelUrl } : {}),
         messages: [
           {
             role: 'system',
@@ -53,6 +57,16 @@ export class VapiService {
         ],
         toolIds: config.toolId ? [config.toolId] : []
       },
+      ...(config.providerApiKey
+        ? {
+            credentials: [
+              {
+                provider: config.modelProvider || 'openai',
+                apiKey: config.providerApiKey,
+              },
+            ],
+          }
+        : {}),
       voice: {
         provider: 'vapi',
         voiceId: config.voiceId || 'Harry'

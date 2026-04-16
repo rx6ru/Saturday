@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
 import fg from 'fast-glob';
-import { QdrantCodeIndex, CodeChunkPayload, buildChunkKey } from '../lib/qdrant-client';
+import { QdrantCodeIndex, CodeChunkPayload, buildChunkKey, toQdrantPointId } from '../lib/qdrant-client';
 import { EmbeddingService } from '../lib/embedding';
 import { FileChunker, Chunk } from '../lib/chunker';
 import { loadConfig, Config } from '../lib/config';
@@ -45,8 +45,19 @@ export async function runSync(options: SyncOptions): Promise<void> {
     config.qdrant.collection
   );
 
-  const embeddingModel = config.embedding?.model || 'text-embedding-3-small';
-  const embedding = new EmbeddingService(config.openai.apiKey, embeddingModel);
+  const embeddingConfig = config.embedding || {
+    provider: 'openai',
+    model: 'text-embedding-3-small',
+    dimensions: 1536,
+  };
+  const embeddingApiKey =
+    embeddingConfig.provider === 'gemini'
+      ? config.gemini?.apiKey || ''
+      : config.openai?.apiKey || '';
+  const embedding = new EmbeddingService({
+    ...embeddingConfig,
+    apiKey: embeddingApiKey,
+  });
   const chunker = new FileChunker(50, 10);
 
   const indexing = config.indexing || { include: ['src'], exclude: [], extensions: ['.ts', '.js'] };
@@ -140,28 +151,36 @@ export async function runSync(options: SyncOptions): Promise<void> {
 
   if (toUpsert.length > 0) {
     console.log('\nGenerating embeddings...');
-    const embeddings = await embedding.embedBatch(toUpsert.map((c: Chunk) => c.content));
+    const embeddings = await embedding.embedBatch(
+      toUpsert.map((c: Chunk) => c.content),
+      100,
+      'RETRIEVAL_DOCUMENT',
+    );
 
     console.log('\nUploading to Qdrant...');
-    const points = toUpsert.map((chunk: Chunk, idx: number) => ({
-      id: chunk.id || chunk.filePath + ':' + chunk.startLine,
-      vector: embeddings[idx],
+    const points = toUpsert.map((chunk: Chunk, idx: number) => {
+      const chunkKey = buildChunkKey({
+        filePath: chunk.filePath,
+        functionName: chunk.functionName || null,
+        startLine: chunk.startLine,
+        endLine: chunk.endLine,
+      });
+
+      return {
+        id: chunk.id && /^[0-9a-f-]{36}$/i.test(chunk.id) ? chunk.id : toQdrantPointId(chunkKey),
+        vector: embeddings[idx],
         payload: {
           filePath: chunk.filePath,
           chunkHash: chunk.hash,
           language: chunk.language,
           functionName: chunk.functionName || null,
-          chunkKey: buildChunkKey({
-            filePath: chunk.filePath,
-            functionName: chunk.functionName || null,
-            startLine: chunk.startLine,
-            endLine: chunk.endLine,
-          }),
+          chunkKey,
           startLine: chunk.startLine,
           endLine: chunk.endLine,
           lastSynced: Date.now()
-      } as CodeChunkPayload
-    }));
+        } as CodeChunkPayload
+      };
+    });
     await qdrant.upsertBatch(points);
   }
 

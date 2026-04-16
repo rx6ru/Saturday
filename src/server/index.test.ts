@@ -181,6 +181,38 @@ describe('server handlers', () => {
     expect(res.body.results[0].result).toContain('startServer');
   });
 
+  test('search handler embeds questions as code retrieval queries', async () => {
+    const embed = jest.fn().mockResolvedValue({
+      embedding: [0.1, 0.2, 0.3],
+      model: 'gemini-embedding-001',
+      usage: { prompt_tokens: 0, total_tokens: 0 },
+    });
+    const req = {
+      body: {
+        message: {
+          type: 'tool-calls',
+          toolCallList: [
+            {
+              id: 'tool-1',
+              name: 'search_codebase',
+              arguments: {
+                query: 'Where is auth handled?',
+              },
+            },
+          ],
+        },
+      },
+    };
+    const res = createResponse();
+
+    await createSearchHandler(
+      { search: jest.fn().mockResolvedValue([]) } as any,
+      { embed } as any,
+    )(req as any, res as any);
+
+    expect(embed).toHaveBeenCalledWith('Where is auth handled?', 'CODE_RETRIEVAL_QUERY');
+  });
+
   test('sync handler triggers sync runner with config path', async () => {
     const res = createResponse();
     const syncRunner = jest.fn().mockResolvedValue(undefined);

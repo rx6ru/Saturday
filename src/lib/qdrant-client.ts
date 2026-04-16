@@ -28,6 +28,12 @@ export function buildChunkKey(payload: {
   return `${payload.filePath}:${functionPart}`;
 }
 
+export function toQdrantPointId(seed: string): string {
+  const { createHash } = require('crypto');
+  const hex = createHash('sha256').update(seed).digest('hex').slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export class QdrantCodeIndex {
   private client: any;
   private collection: string;

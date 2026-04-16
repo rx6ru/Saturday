@@ -54,6 +54,52 @@ describe('VapiService (TDD)', () => {
     expect(result).toBe('assistant-1');
   });
 
+  test('createAssistant() supports non-OpenAI model providers and provider credentials', async () => {
+    mockClient.assistants.create.mockResolvedValue({ id: 'assistant-1' });
+
+    await service.createAssistant({
+      name: 'Saturday',
+      modelProvider: 'groq',
+      model: 'llama-3.3-70b-versatile',
+      providerApiKey: 'groq-key',
+      toolId: 'tool-1',
+    });
+
+    const payload = mockClient.assistants.create.mock.calls[0][0];
+    expect(payload.model.provider).toBe('groq');
+    expect(payload.model.model).toBe('llama-3.3-70b-versatile');
+    expect(payload.credentials).toEqual([
+      {
+        provider: 'groq',
+        apiKey: 'groq-key',
+      },
+    ]);
+  });
+
+  test('createAssistant() supports custom OpenAI-compatible endpoints', async () => {
+    mockClient.assistants.create.mockResolvedValue({ id: 'assistant-1' });
+
+    await service.createAssistant({
+      name: 'Saturday',
+      modelProvider: 'custom-llm',
+      model: 'gpt-oss-120b',
+      modelUrl: 'https://api.cerebras.ai/v1',
+      providerApiKey: 'cerebras-key',
+      toolId: 'tool-1',
+    });
+
+    const payload = mockClient.assistants.create.mock.calls[0][0];
+    expect(payload.model.provider).toBe('custom-llm');
+    expect(payload.model.url).toBe('https://api.cerebras.ai/v1');
+    expect(payload.model.model).toBe('gpt-oss-120b');
+    expect(payload.credentials).toEqual([
+      {
+        provider: 'custom-llm',
+        apiKey: 'cerebras-key',
+      },
+    ]);
+  });
+
   test('RED: getAssistant() retrieves assistant by id', async () => {
     mockClient.assistants.get.mockResolvedValue({ id: 'assistant-1' });
 

@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { EmbeddingConfig, getEmbeddingDimensions } from './config';
 
 export interface EmbeddingResult {
   embedding: number[];
@@ -6,17 +7,43 @@ export interface EmbeddingResult {
   usage: { prompt_tokens: number; total_tokens: number };
 }
 
-export class EmbeddingService {
-  private openai: OpenAI;
-  private model: string;
+export interface EmbeddingServiceConfig extends EmbeddingConfig {
+  apiKey: string;
+}
 
-  constructor(apiKey: string, model: string = 'text-embedding-3-small') {
-    this.openai = new OpenAI({ apiKey });
-    this.model = model;
+type EmbeddingProvider = 'openai' | 'gemini';
+
+export class EmbeddingService {
+  private apiKey: string;
+  private provider: EmbeddingProvider;
+  private model: string;
+  private dimensions: number;
+  private openai?: OpenAI;
+
+  constructor(apiKeyOrConfig: string | EmbeddingServiceConfig, model: string = 'text-embedding-3-small') {
+    if (typeof apiKeyOrConfig === 'string') {
+      this.apiKey = apiKeyOrConfig;
+      this.provider = 'openai';
+      this.model = model;
+      this.dimensions = getEmbeddingDimensions('openai', model);
+    } else {
+      this.apiKey = apiKeyOrConfig.apiKey;
+      this.provider = apiKeyOrConfig.provider as EmbeddingProvider;
+      this.model = apiKeyOrConfig.model;
+      this.dimensions = apiKeyOrConfig.dimensions;
+    }
+
+    if (this.provider === 'openai') {
+      this.openai = new OpenAI({ apiKey: this.apiKey });
+    }
   }
 
-  async embed(text: string): Promise<EmbeddingResult> {
-    const response = await this.openai.embeddings.create({
+  async embed(text: string, taskType: string = 'RETRIEVAL_QUERY'): Promise<EmbeddingResult> {
+    if (this.provider === 'gemini') {
+      return this.embedGemini(text, taskType);
+    }
+
+    const response = await this.openai!.embeddings.create({
       model: this.model,
       input: text
     });
@@ -32,12 +59,25 @@ export class EmbeddingService {
     };
   }
 
-  async embedBatch(texts: string[], batchSize: number = 100): Promise<number[][]> {
+  async embedBatch(
+    texts: string[],
+    batchSize: number = 100,
+    taskType: string = 'RETRIEVAL_DOCUMENT',
+  ): Promise<number[][]> {
+    if (this.provider === 'gemini') {
+      const embeddings: number[][] = [];
+      for (const text of texts) {
+        const result = await this.embedGemini(text, taskType);
+        embeddings.push(result.embedding);
+      }
+      return embeddings;
+    }
+
     const embeddings: number[][] = [];
 
     for (let i = 0; i < texts.length; i += batchSize) {
       const batch = texts.slice(i, i + batchSize);
-      const response = await this.openai.embeddings.create({
+      const response = await this.openai!.embeddings.create({
         model: this.model,
         input: batch
       });
@@ -51,11 +91,53 @@ export class EmbeddingService {
   }
 
   getDimensions(): number {
-    const dimensions: Record<string, number> = {
-      'text-embedding-3-small': 1536,
-      'text-embedding-3-large': 3072,
-      'text-embedding-ada-002': 1536
+    return this.dimensions;
+  }
+
+  private async embedGemini(text: string, taskType: string): Promise<EmbeddingResult> {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:embedContent`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': this.apiKey,
+        },
+        body: JSON.stringify({
+          content: {
+            parts: [{ text }],
+          },
+          taskType,
+          output_dimensionality: this.dimensions,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Gemini embedding failed: ${response.status} ${body}`);
+    }
+
+    const payload: any = await response.json();
+    const rawEmbedding = payload.embedding?.values || payload.embeddings?.[0]?.values;
+    if (!Array.isArray(rawEmbedding)) {
+      throw new Error('Gemini embedding response did not include embedding values');
+    }
+
+    const embedding = this.dimensions === 3072 ? rawEmbedding : this.normalize(rawEmbedding);
+    return {
+      embedding,
+      model: this.model,
+      usage: {
+        prompt_tokens: 0,
+        total_tokens: 0,
+      },
     };
-    return dimensions[this.model] || 1536;
+  }
+
+  private normalize(vector: number[]): number[] {
+    const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+    if (!norm) return vector;
+    return vector.map((value) => value / norm);
   }
 }

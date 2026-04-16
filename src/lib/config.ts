@@ -17,10 +17,25 @@ export interface OpenAiConfig {
   apiKey: string;
 }
 
+export interface GeminiConfig {
+  apiKey: string;
+}
+
 export interface EmbeddingConfig {
   provider: string;
   model: string;
   dimensions: number;
+}
+
+export interface AssistantModelConfig {
+  provider: string;
+  model: string;
+  url?: string;
+  apiKey?: string;
+}
+
+export interface AssistantConfig {
+  model: AssistantModelConfig;
 }
 
 export interface IndexingConfig {
@@ -37,10 +52,23 @@ export interface ServerConfig {
 export interface Config {
   vapi: VapiConfig;
   qdrant: QdrantConfig;
-  openai: OpenAiConfig;
+  openai?: OpenAiConfig;
+  gemini?: GeminiConfig;
+  assistant?: AssistantConfig;
   embedding?: EmbeddingConfig;
   indexing?: IndexingConfig;
   server?: ServerConfig;
+}
+
+export function getEmbeddingDimensions(provider: string, model: string, explicit?: number): number {
+  if (explicit) return explicit;
+  if (provider === 'gemini') return 3072;
+  const dimensions: Record<string, number> = {
+    'text-embedding-3-small': 1536,
+    'text-embedding-3-large': 3072,
+    'text-embedding-ada-002': 1536
+  };
+  return dimensions[model] || 1536;
 }
 
 export function getDefaultConfig(): Config {
@@ -57,6 +85,15 @@ export function getDefaultConfig(): Config {
     },
     openai: {
       apiKey: ''
+    },
+    gemini: {
+      apiKey: ''
+    },
+    assistant: {
+      model: {
+        provider: 'openai',
+        model: 'gpt-4o'
+      }
     },
     embedding: {
       provider: 'openai',
@@ -82,7 +119,16 @@ export function validateConfig(cfg: Config): string[] {
   if (!cfg?.qdrant?.url) errors.push('qdrant.url is required');
   if (!cfg?.qdrant?.apiKey) errors.push('qdrant.apiKey is required');
   if (!cfg?.qdrant?.collection) errors.push('qdrant.collection is required');
-  if (!cfg?.openai?.apiKey) errors.push('openai.apiKey is required');
+  const embeddingProvider = cfg?.embedding?.provider || 'openai';
+  if (embeddingProvider === 'openai' && !cfg?.openai?.apiKey) {
+    errors.push('openai.apiKey is required');
+  }
+  if (embeddingProvider === 'gemini' && !cfg?.gemini?.apiKey) {
+    errors.push('gemini.apiKey is required');
+  }
+  if (cfg?.assistant?.model?.provider === 'custom-llm' && !cfg.assistant.model.url) {
+    errors.push('assistant.model.url is required for custom-llm');
+  }
   return errors;
 }
 

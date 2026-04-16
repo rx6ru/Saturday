@@ -68,7 +68,17 @@ export function createApp(config: Config, dependencies: ServerDependencies = {})
     new QdrantCodeIndex(config.qdrant.url, config.qdrant.apiKey, config.qdrant.collection);
   const embedding =
     dependencies.embedding ||
-    new EmbeddingService(config.openai.apiKey, config.embedding?.model || 'text-embedding-3-small');
+    new EmbeddingService({
+      ...(config.embedding || {
+        provider: 'openai',
+        model: 'text-embedding-3-small',
+        dimensions: 1536,
+      }),
+      apiKey:
+        config.embedding?.provider === 'gemini'
+          ? config.gemini?.apiKey || ''
+          : config.openai?.apiKey || '',
+    });
   const syncRunner = dependencies.syncRunner || runSync;
   const configPath = dependencies.configPath || '.saturday.config.json';
   const staticDir = path.resolve(__dirname, '..', 'web');

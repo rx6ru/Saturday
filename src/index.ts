@@ -9,7 +9,7 @@ const program = new Command();
 program
   .name('saturday')
   .description('Talk to your codebase through voice')
-  .version('1.0.1');
+  .version('1.1.0');
 
 initCommand(program);
 syncCommand(program);

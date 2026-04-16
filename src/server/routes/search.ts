@@ -95,7 +95,7 @@ export function createSearchHandler(qdrant: QdrantCodeIndex, embedding: Embeddin
           continue;
         }
 
-        const embedded = await embedding.embed(query);
+        const embedded = await embedding.embed(query, 'CODE_RETRIEVAL_QUERY');
         const searchResults = await qdrant.search(embedded.embedding, 5);
 
         if (searchResults.length === 0) {
