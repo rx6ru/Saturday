@@ -12,6 +12,17 @@ export function serveCommand(program: Command) {
     .description('Start voice UI server')
     .option('--config <path>', 'Config file path', '.saturday.config.json')
     .option('--port <port>', 'Server port', '3000')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  saturday serve
+  saturday serve --port 4010
+
+Notes:
+  ngrok must be installed and available on PATH.
+`,
+    )
     .action(async (options) => {
       try {
         await runServe(options);

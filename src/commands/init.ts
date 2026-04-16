@@ -23,6 +23,15 @@ export function initCommand(program: Command) {
     .option('--embedding-model <model>', 'Embedding model')
     .option('--embedding-dimensions <dimensions>', 'Embedding dimensions')
     .option('--force', 'Overwrite existing config')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  saturday init --qdrant-url <url> --qdrant-key <key> --openai-key <key>
+  saturday init --assistant-model-provider groq --assistant-provider-api-key "$GROQ_API_KEY"
+  saturday init --embedding-provider gemini --gemini-key "$GEMINI_API_KEY"
+`,
+    )
     .action(async (options) => {
       try {
         await runInit(options);

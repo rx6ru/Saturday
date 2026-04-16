@@ -1,5 +1,6 @@
 let vapi = null;
 let config = null;
+let currentSources = [];
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -7,6 +8,8 @@ async function init() {
   try {
     const response = await fetch('/api/config');
     config = await response.json();
+
+    updateAssistantSummary();
 
     if (!config.vapiPublicKey || !config.assistantId) {
       showError('Configuration incomplete. Run saturday serve again.');
@@ -17,8 +20,6 @@ async function init() {
     setupVapiEvents();
     setupUIEvents();
     await fetchSyncStatus();
-
-    console.log('Saturday initialized');
   } catch (error) {
     showError('Initialization failed: ' + error.message);
   }
@@ -28,33 +29,39 @@ function setupVapiEvents() {
   vapi.on('speech-start', () => {
     document.getElementById('orb').classList.add('speaking');
     document.getElementById('orb').classList.remove('listening');
-    document.getElementById('status').textContent = 'AI speaking...';
+    setSessionState('Speaking');
+    document.getElementById('status').textContent = 'Assistant is speaking';
   });
 
   vapi.on('speech-end', () => {
     document.getElementById('orb').classList.remove('speaking');
-    document.getElementById('status').textContent = 'Click to talk';
+    setSessionState('Connected');
+    document.getElementById('status').textContent = 'Waiting for your next question';
   });
 
   vapi.on('call-start', () => {
-    document.getElementById('status').textContent = 'Listening...';
+    document.getElementById('orb').classList.add('listening');
+    document.getElementById('status').textContent = 'Listening for your question';
     document.getElementById('talkBtn').classList.add('active');
-    document.getElementById('talkBtn').textContent = 'Stop';
+    document.getElementById('talkBtn').textContent = 'Stop voice session';
+    setSessionState('Listening');
   });
 
   vapi.on('call-end', () => {
     document.getElementById('orb').classList.remove('speaking', 'listening');
-    document.getElementById('status').textContent = 'Click to start';
+    document.getElementById('status').textContent = 'Ready to talk';
     document.getElementById('talkBtn').classList.remove('active');
-    document.getElementById('talkBtn').textContent = 'Talk';
+    document.getElementById('talkBtn').textContent = 'Start voice session';
+    setSessionState('Idle');
   });
 
   vapi.on('volume-level', (volume) => {
     const orb = document.getElementById('orb');
-    const intensity = Math.min(1, volume) * 30;
+    const intensity = Math.min(1, volume) * 40;
     orb.style.boxShadow = `
-      0 0 ${60 + intensity}px rgba(74, 158, 255, ${0.5 + intensity/100}),
-      inset 0 0 ${60 + intensity}px rgba(74, 158, 255, ${0.3 + intensity/100})
+      0 0 0 14px rgba(17, 93, 140, 0.08),
+      0 32px ${70 + intensity}px rgba(17, 93, 140, ${0.24 + intensity / 200}),
+      inset 0 0 ${32 + intensity}px rgba(255, 255, 255, 0.35)
     `;
   });
 
@@ -65,7 +72,7 @@ function setupVapiEvents() {
   });
 
   vapi.on('error', (error) => {
-    console.error('Vapi error:', error);
+    setSessionState('Error');
     showError(error?.error?.message || 'Voice error occurred');
   });
 }
@@ -84,11 +91,10 @@ function handleTranscript(message) {
     if (!existingMsg) {
       existingMsg = document.createElement('div');
       existingMsg.className = `message ${role} partial`;
-      existingMsg.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'AI'}:</div><div class="text"></div>`;
+      existingMsg.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'Assistant'}</div><div class="text"></div>`;
       transcriptDiv.appendChild(existingMsg);
     }
     existingMsg.querySelector('.text').textContent = transcript;
-    transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
   } else if (type === 'final') {
     let existingMsg = transcriptDiv.querySelector(`.message.${role}.partial`);
     if (existingMsg) {
@@ -97,34 +103,32 @@ function handleTranscript(message) {
     } else {
       const msg = document.createElement('div');
       msg.className = `message ${role}`;
-      msg.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'AI'}:</div><div class="text">${transcript}</div>`;
+      msg.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'Assistant'}</div><div class="text">${transcript}</div>`;
       transcriptDiv.appendChild(msg);
     }
 
     if (role === 'assistant') {
-      extractSourcesFromText(transcript);
+      currentSources = window.SaturdayPresenter.extractSourcesFromText(transcript);
+      updateSources(currentSources);
     }
-
-    transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
   }
+
+  transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
 }
 
-function extractSourcesFromText(text) {
-  const filePattern = /(?:^|[^\w])([\w\/\-]+\.ts|[\w\/\-]+\.js|[\w\/\-]+\.tsx|[\w\/\-]+\.jsx|[\w\/\-]+\.py)/gi;
-  const matches = text.match(filePattern);
-
-  if (matches) {
-    const uniqueFiles = [...new Set(matches.map(m => m.trim()))];
-    updateSources(uniqueFiles.map(file => ({ file })));
-  }
-}
-
-function updateSources(newSources) {
+function updateSources(sources) {
   const sourcesList = document.getElementById('sources');
-  const empty = sourcesList.querySelector('.empty');
-  if (empty) empty.remove();
+  sourcesList.innerHTML = '';
 
-  newSources.forEach(source => {
+  if (!sources.length) {
+    const empty = document.createElement('li');
+    empty.className = 'empty';
+    empty.textContent = 'Sources will appear here';
+    sourcesList.appendChild(empty);
+    return;
+  }
+
+  sources.forEach((source) => {
     const li = document.createElement('li');
     li.textContent = source.functionName ? `${source.file} (${source.functionName})` : source.file;
     sourcesList.appendChild(li);
@@ -140,7 +144,7 @@ function setupUIEvents() {
       vapi.stop();
     } else {
       document.getElementById('orb').classList.add('listening');
-      document.getElementById('status').textContent = 'Listening...';
+      document.getElementById('status').textContent = 'Listening for your question';
       vapi.start(config.assistantId);
     }
   });
@@ -148,7 +152,7 @@ function setupUIEvents() {
   document.getElementById('syncBtn').addEventListener('click', async () => {
     const btn = document.getElementById('syncBtn');
     btn.disabled = true;
-    btn.textContent = 'Syncing...';
+    btn.textContent = 'Syncing';
 
     try {
       await fetch('/api/sync', { method: 'POST' });
@@ -162,8 +166,8 @@ function setupUIEvents() {
   });
 
   document.getElementById('sendBtn').addEventListener('click', sendTextMessage);
-  document.getElementById('fallbackInput').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendTextMessage();
+  document.getElementById('fallbackInput').addEventListener('keypress', (event) => {
+    if (event.key === 'Enter') sendTextMessage();
   });
 }
 
@@ -175,7 +179,7 @@ function sendTextMessage() {
 
   vapi.send({
     type: 'add-message',
-    message: { role: 'user', content: text }
+    message: { role: 'user', content: text },
   });
 
   const transcriptDiv = document.getElementById('transcript');
@@ -184,18 +188,35 @@ function sendTextMessage() {
 
   const msg = document.createElement('div');
   msg.className = 'message user';
-  msg.innerHTML = `<div class="role">You:</div><div class="text">${text}</div>`;
+  msg.innerHTML = `<div class="role">You</div><div class="text">${text}</div>`;
   transcriptDiv.appendChild(msg);
+  transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
 
   input.value = '';
+  setSessionState('Waiting for assistant');
 }
 
 async function fetchSyncStatus() {
   try {
-    document.getElementById('syncStatus').textContent = 'Last synced: recently';
+    const response = await fetch('/api/stats');
+    const stats = await response.json();
+    document.getElementById('syncStatus').textContent = window.SaturdayPresenter.formatSyncStatus(stats);
+    document.getElementById('indexSummary').textContent = window.SaturdayPresenter.formatSyncStatus(stats);
   } catch (error) {
-    console.error('Failed to fetch sync status:', error);
+    document.getElementById('syncStatus').textContent = 'No sync data';
+    document.getElementById('indexSummary').textContent = 'No sync data';
   }
+}
+
+function updateAssistantSummary() {
+  document.getElementById('assistantSummary').textContent = window.SaturdayPresenter.formatAssistantLabel(
+    config?.assistantProvider,
+    config?.assistantModel,
+  );
+}
+
+function setSessionState(text) {
+  document.getElementById('sessionStatus').textContent = text;
 }
 
 function showError(message) {

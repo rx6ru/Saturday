@@ -13,6 +13,14 @@ export function syncCommand(program: Command) {
     .description('Sync codebase to Qdrant')
     .option('--config <path>', 'Config file path', '.saturday.config.json')
     .option('--full', 'Force full sync')
+    .addHelpText(
+      'after',
+      `
+Examples:
+  saturday sync
+  saturday sync --full
+`,
+    )
     .action(async (options) => {
       try {
         await runSync(options);

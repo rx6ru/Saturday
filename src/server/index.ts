@@ -25,6 +25,8 @@ export function createConfigHandler(config: Config) {
     res.json({
       vapiPublicKey: config.vapi.publicKey,
       assistantId: config.vapi.assistantId || '',
+      assistantProvider: config.assistant?.model.provider || '',
+      assistantModel: config.assistant?.model.model || '',
     });
   };
 }

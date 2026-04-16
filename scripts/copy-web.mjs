@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync } from 'fs';
+import { cpSync, existsSync, mkdirSync, readdirSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -13,4 +13,10 @@ if (!existsSync(sourceDir)) {
 }
 
 mkdirSync(targetDir, { recursive: true });
-cpSync(sourceDir, targetDir, { recursive: true });
+
+for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
+  if (!entry.isFile()) continue;
+  if (!/\.(html|css|js)$/.test(entry.name)) continue;
+  if (/\.test\./.test(entry.name)) continue;
+  cpSync(path.join(sourceDir, entry.name), path.join(targetDir, entry.name));
+}

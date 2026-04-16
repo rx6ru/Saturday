@@ -56,6 +56,8 @@ describe('server handlers', () => {
     expect(res.body).toEqual({
       vapiPublicKey: 'public-key',
       assistantId: 'assistant-123',
+      assistantProvider: '',
+      assistantModel: '',
     });
   });
 

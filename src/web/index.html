@@ -6,42 +6,88 @@
   <title>Saturday</title>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/index.umd.js"></script>
+  <script src="presenter.js"></script>
 </head>
 <body>
   <div class="container">
     <header class="header">
-      <h1>Saturday</h1>
-      <p class="subtitle">Talk to your codebase</p>
+      <div class="brand">
+        <div class="brand-mark">S</div>
+        <div>
+          <h1>Saturday</h1>
+          <p class="subtitle">Voice search for codebases</p>
+        </div>
+      </div>
+      <div class="header-summary">
+        <div class="summary-card">
+          <span class="summary-label">Assistant</span>
+          <span id="assistantSummary" class="summary-value">Loading</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Index</span>
+          <span id="indexSummary" class="summary-value">Loading</span>
+        </div>
+      </div>
     </header>
 
     <main class="main">
-      <div class="orb-section">
-        <div id="orb" class="orb"></div>
-        <div id="status" class="status">Click to start</div>
-      </div>
+      <section class="hero-panel">
+        <div class="orb-section">
+          <div id="orb" class="orb"></div>
+          <div id="status" class="status">Ready to talk</div>
+        </div>
+
+        <div class="quick-guide">
+          <h2>How to use it</h2>
+          <ol class="guide-list">
+            <li>Press <strong>Talk</strong> and ask about files, functions, or architecture.</li>
+            <li>Use the text box if voice is unavailable.</li>
+            <li>Watch the transcript and source panel update during the session.</li>
+          </ol>
+        </div>
+      </section>
 
       <aside class="sidebar">
-        <h3>Source References</h3>
+        <div class="sidebar-section">
+          <h3>Session</h3>
+          <div class="session-meta">
+            <div class="meta-row">
+              <span class="meta-label">Status</span>
+              <span id="sessionStatus" class="meta-value">Idle</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Last sync</span>
+              <span id="syncStatus" class="meta-value">Unknown</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <h3>Source References</h3>
         <ul id="sources" class="sources-list">
           <li class="empty">Sources will appear here</li>
         </ul>
+        </div>
       </aside>
     </main>
 
     <section class="transcript-section">
+      <div class="section-heading">
+        <h2>Transcript</h2>
+        <p>Live conversation with file-level references.</p>
+      </div>
       <div id="transcript" class="transcript">
         <p class="empty">Conversation will appear here</p>
       </div>
     </section>
 
     <footer class="controls">
-      <button id="talkBtn" class="btn btn-primary">Talk</button>
+      <button id="talkBtn" class="btn btn-primary">Start voice session</button>
       <button id="syncBtn" class="btn btn-secondary">Sync Now</button>
-      <span id="syncStatus" class="sync-status">Last synced: --</span>
     </footer>
 
-    <div id="textInput" class="text-input hidden">
-      <input type="text" id="fallbackInput" placeholder="Type your question...">
+    <div id="textInput" class="text-input">
+      <input type="text" id="fallbackInput" placeholder="Type a question about this project">
       <button id="sendBtn" class="btn btn-small">Send</button>
     </div>
 
