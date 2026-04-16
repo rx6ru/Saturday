@@ -7,7 +7,7 @@ interactive setup and cleaner progress output.
 ```text
         your repo              vector store             voice UI
    +----------------+       +--------------+       +----------------+
-   | saturday sync  | ----> |   Qdrant     | <---- | /api/search    |
+   | satur-day sync | ----> |   Qdrant     | <---- | /api/search    |
    | code chunks    |       | embeddings   |       | Vapi tool call |
    +----------------+       +--------------+       +----------------+
             ^                                             |
@@ -21,8 +21,20 @@ interactive setup and cleaner progress output.
 ## Install
 
 ```bash
-npm install -g saturday
+npm install -g satur-day
 ```
+
+Local use from a git clone:
+
+```bash
+git clone <repo-url>
+cd saturday
+npm install
+npm run build
+npm link
+```
+
+After that, run `satur-day ...` from anywhere on the same machine.
 
 Requirements:
 
@@ -37,7 +49,7 @@ Requirements:
 Run this inside the project you want to query:
 
 ```bash
-saturday init \
+satur-day init \
   --vapi-public-key "$VAPI_PUBLIC_KEY" \
   --vapi-private-key "$VAPI_PRIVATE_KEY" \
   --qdrant-url "$QDRANT_URL" \
@@ -45,21 +57,21 @@ saturday init \
   --qdrant-collection "my-project" \
   --openai-key "$OPENAI_API_KEY"
 
-saturday sync
-saturday serve
+satur-day sync
+satur-day serve
 ```
 
-Then open the URL printed by `saturday serve`.
+Then open the URL printed by `satur-day serve`.
 
-If you run `saturday init` in a real TTY, Saturday walks you through setup with
+If you run `satur-day init` in a real TTY, Saturday walks you through setup with
 Clack prompts instead of forcing every option on the command line.
 
 ## Commands
 
 ```bash
-saturday init   # write .saturday.config.json and prepare Qdrant
-saturday sync   # chunk files, embed changed chunks, upload to Qdrant
-saturday serve  # start the web UI and create a Vapi assistant
+satur-day init   # write .saturday.config.json and prepare Qdrant
+satur-day sync   # chunk files, embed changed chunks, upload to Qdrant
+satur-day serve  # start the web UI and create a Vapi assistant
 ```
 
 CLI behavior:
@@ -97,7 +109,7 @@ embedding model  -> code indexing/search vectors
 OpenAI through Vapi:
 
 ```bash
-saturday init \
+satur-day init \
   --assistant-model-provider openai \
   --assistant-model gpt-4o
 ```
@@ -105,7 +117,7 @@ saturday init \
 Groq through Vapi:
 
 ```bash
-saturday init \
+satur-day init \
   --assistant-model-provider groq \
   --assistant-model llama-3.3-70b-versatile \
   --assistant-provider-api-key "$GROQ_API_KEY"
@@ -114,7 +126,7 @@ saturday init \
 Cerebras through Vapi:
 
 ```bash
-saturday init \
+satur-day init \
   --assistant-model-provider cerebras \
   --assistant-model gpt-oss-120b \
   --assistant-provider-api-key "$CEREBRAS_API_KEY"
@@ -123,7 +135,7 @@ saturday init \
 Any OpenAI-compatible endpoint:
 
 ```bash
-saturday init \
+satur-day init \
   --assistant-model-provider custom-llm \
   --assistant-model gpt-oss-120b \
   --assistant-model-url https://api.cerebras.ai/v1 \
@@ -138,7 +150,7 @@ If your provider key is already configured in the Vapi dashboard, omit
 OpenAI:
 
 ```bash
-saturday init \
+satur-day init \
   --embedding-provider openai \
   --embedding-model text-embedding-3-small \
   --openai-key "$OPENAI_API_KEY"
@@ -147,7 +159,7 @@ saturday init \
 Gemini:
 
 ```bash
-saturday init \
+satur-day init \
   --embedding-provider gemini \
   --embedding-model gemini-embedding-001 \
   --embedding-dimensions 768 \

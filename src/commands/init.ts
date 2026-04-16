@@ -40,9 +40,9 @@ export function initCommand(program: Command) {
       'after',
       `
 Examples:
-  saturday init --qdrant-url <url> --qdrant-key <key> --openai-key <key>
-  saturday init --assistant-model-provider groq --assistant-provider-api-key "$GROQ_API_KEY"
-  saturday init --embedding-provider gemini --gemini-key "$GEMINI_API_KEY"
+  satur-day init --qdrant-url <url> --qdrant-key <key> --openai-key <key>
+  satur-day init --assistant-model-provider groq --assistant-provider-api-key "$GROQ_API_KEY"
+  satur-day init --embedding-provider gemini --gemini-key "$GEMINI_API_KEY"
 `,
     )
     .action(async (options) => {
@@ -296,13 +296,13 @@ export async function runInit(options: InitOptions): Promise<void> {
   }
 
   if (interactive) {
-    p.note('1. saturday sync\n2. saturday serve', 'Next steps');
+    p.note('1. satur-day sync\n2. satur-day serve', 'Next steps');
     p.outro('Saturday is ready.');
   } else {
     console.log('\nSaturday initialized successfully!');
     console.log('\nNext steps:');
-    console.log(' 1. Run `saturday sync` to index your codebase');
-    console.log(' 2. Run `saturday serve` to start the voice UI');
+    console.log(' 1. Run `satur-day sync` to index your codebase');
+    console.log(' 2. Run `satur-day serve` to start the voice UI');
   }
 }
 

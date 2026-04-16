@@ -1,12 +1,12 @@
 {
-  "name": "saturday",
+  "name": "satur-day",
   "version": "1.1.0",
   "description": "Saturday turns any codebase into a voice-queryable knowledge base",
   "keywords": ["voice", "codebase", "rag", "vapi", "qdrant", "assistant"],
   "author": "",
   "license": "MIT",
   "bin": {
-    "saturday": "./dist/index.js"
+    "satur-day": "./dist/index.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

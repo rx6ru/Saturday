@@ -12,7 +12,7 @@ async function init() {
     updateAssistantSummary();
 
     if (!config.vapiPublicKey || !config.assistantId) {
-      showError('Configuration incomplete. Run saturday serve again.');
+      showError('Configuration incomplete. Run satur-day serve again.');
       return;
     }
 

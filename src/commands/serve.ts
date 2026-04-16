@@ -17,8 +17,8 @@ export function serveCommand(program: Command) {
       'after',
       `
 Examples:
-  saturday serve
-  saturday serve --port 4010
+  satur-day serve
+  satur-day serve --port 4010
 
 Notes:
   ngrok must be installed and available on PATH.
@@ -44,7 +44,7 @@ export async function runServe(options: ServeOptions): Promise<void> {
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
   if (!fs.existsSync(configPath)) {
-    throw new Error('Config not found. Run `saturday init` first.');
+    throw new Error('Config not found. Run `satur-day init` first.');
   }
 
   const config: Config = loadConfig(configPath);

@@ -6,8 +6,8 @@ describe('CLI help', () => {
     const help = program.helpInformation();
 
     expect(help).toContain('Examples:');
-    expect(help).toContain('saturday init');
-    expect(help).toContain('saturday sync');
-    expect(help).toContain('saturday serve');
+    expect(help).toContain('satur-day init');
+    expect(help).toContain('satur-day sync');
+    expect(help).toContain('satur-day serve');
   });
 });

@@ -18,8 +18,8 @@ export function syncCommand(program: Command) {
       'after',
       `
 Examples:
-  saturday sync
-  saturday sync --full
+  satur-day sync
+  satur-day sync --full
 `,
     )
     .action(async (options) => {
@@ -42,7 +42,7 @@ export async function runSync(options: SyncOptions): Promise<void> {
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
   if (!fs.existsSync(configPath)) {
-    throw new Error('Config not found. Run `saturday init` first.');
+    throw new Error('Config not found. Run `satur-day init` first.');
   }
 
   const config: Config = loadConfig(configPath);

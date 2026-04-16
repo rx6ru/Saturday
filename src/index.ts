@@ -8,7 +8,7 @@ export function buildProgram(): Command {
   const program = new Command();
 
   program
-    .name('saturday')
+    .name('satur-day')
     .description('Talk to your codebase through voice')
     .version('1.1.0');
 
@@ -16,9 +16,9 @@ export function buildProgram(): Command {
   program.helpInformation = () =>
     `${originalHelpInformation()}
 Examples:
-  saturday init --qdrant-url <url> --qdrant-key <key> --openai-key <key>
-  saturday sync
-  saturday serve
+  satur-day init --qdrant-url <url> --qdrant-key <key> --openai-key <key>
+  satur-day sync
+  satur-day serve
 `;
 
   initCommand(program);
