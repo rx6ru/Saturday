@@ -1,5 +1,53 @@
-<!doctype html>
-<html>
-  <head><title>Test Web</title></head>
-  <body><h1>Hello Web</h1></body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Coach</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/index.umd.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1>🎙️ Voice Coach</h1>
+      <p class="subtitle">Talk to your codebase</p>
+    </header>
+
+    <main class="main">
+      <div class="orb-section">
+        <div id="orb" class="orb"></div>
+        <div id="status" class="status">Click to start</div>
+      </div>
+
+      <aside class="sidebar">
+        <h3>Source References</h3>
+        <ul id="sources" class="sources-list">
+          <li class="empty">Sources will appear here</li>
+        </ul>
+      </aside>
+    </main>
+
+    <section class="transcript-section">
+      <div id="transcript" class="transcript">
+        <p class="empty">Conversation will appear here</p>
+      </div>
+    </section>
+
+    <footer class="controls">
+      <button id="talkBtn" class="btn btn-primary">🎙️ Talk</button>
+      <button id="syncBtn" class="btn btn-secondary">Sync Now</button>
+      <span id="syncStatus" class="sync-status">Last synced: --</span>
+    </footer>
+
+    <div id="textInput" class="text-input hidden">
+      <input type="text" id="fallbackInput" placeholder="Type your question...">
+      <button id="sendBtn" class="btn btn-small">Send</button>
+    </div>
+
+    <div id="error" class="error hidden"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
 </html>
