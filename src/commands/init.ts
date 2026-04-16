@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import * as p from '@clack/prompts';
 import * as fs from 'fs';
 import * as path from 'path';
 import { QdrantCodeIndex } from '../lib/qdrant-client';
@@ -65,33 +66,139 @@ export interface InitOptions {
 export async function runInit(options: InitOptions): Promise<void> {
   const configPath = path.resolve(options.configPath || path.join(process.cwd(), '.saturday.config.json'));
   const gitignorePath = path.resolve(options.gitignorePath || path.join(process.cwd(), '.gitignore'));
+  const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
-  console.log('Saturday Setup\n');
-
-  if (fs.existsSync(configPath) && !options.force) {
-    console.log('Config already exists. Overwrite with --force or delete first.');
-    return;
+  if (interactive) {
+    p.intro('Saturday');
+  } else {
+    console.log('Saturday Setup\n');
   }
 
-  const vapiPublicKey = options.vapiPublicKey || process.env.VAPI_PUBLIC_KEY || '';
-  const vapiPrivateKey = options.vapiPrivateKey || process.env.VAPI_PRIVATE_KEY || '';
-  const qdrantUrl = options.qdrantUrl || process.env.QDRANT_URL || '';
-  const qdrantKey = options.qdrantKey || process.env.QDRANT_KEY || '';
-  const collectionName = options.qdrantCollection || path.basename(process.cwd());
+  if (fs.existsSync(configPath) && !options.force) {
+    if (!interactive) {
+      console.log('Config already exists. Overwrite with --force or delete first.');
+      return;
+    }
+
+    const shouldOverwrite = await p.confirm({
+      message: 'Config already exists. Overwrite it?',
+      initialValue: false,
+    });
+    if (p.isCancel(shouldOverwrite) || !shouldOverwrite) {
+      p.cancel('Initialization cancelled.');
+      return;
+    }
+  }
+
+  const vapiPublicKey = await resolveTextOption({
+    value: options.vapiPublicKey || process.env.VAPI_PUBLIC_KEY || '',
+    interactive,
+    prompt: 'Vapi public key',
+    secret: true,
+  });
+  const vapiPrivateKey = await resolveTextOption({
+    value: options.vapiPrivateKey || process.env.VAPI_PRIVATE_KEY || '',
+    interactive,
+    prompt: 'Vapi private key',
+    secret: true,
+  });
+  const qdrantUrl = await resolveTextOption({
+    value: options.qdrantUrl || process.env.QDRANT_URL || '',
+    interactive,
+    prompt: 'Qdrant URL',
+    placeholder: 'https://your-cluster.qdrant.io:6333',
+  });
+  const qdrantKey = await resolveTextOption({
+    value: options.qdrantKey || process.env.QDRANT_KEY || '',
+    interactive,
+    prompt: 'Qdrant API key',
+    secret: true,
+  });
+  const collectionName = await resolveTextOption({
+    value: options.qdrantCollection || path.basename(process.cwd()),
+    interactive,
+    prompt: 'Qdrant collection name',
+    placeholder: path.basename(process.cwd()),
+  });
   const openaiKey = options.openaiKey || process.env.OPENAI_API_KEY || '';
   const geminiKey = options.geminiKey || process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEYS || '';
-  const assistantModelProvider = options.assistantModelProvider || 'openai';
-  const assistantModel = options.assistantModel || getDefaultAssistantModel(assistantModelProvider);
-  const assistantModelUrl = options.assistantModelUrl || getDefaultAssistantModelUrl(assistantModelProvider);
+  const assistantModelProvider = await resolveSelectOption({
+    value: options.assistantModelProvider || 'openai',
+    interactive,
+    prompt: 'Assistant model provider',
+    options: [
+      { value: 'openai', label: 'OpenAI' },
+      { value: 'google', label: 'Google Gemini via Vapi' },
+      { value: 'groq', label: 'Groq' },
+      { value: 'cerebras', label: 'Cerebras' },
+      { value: 'custom-llm', label: 'Custom OpenAI-compatible endpoint' },
+    ],
+  });
+  const assistantModel = await resolveTextOption({
+    value: options.assistantModel || getDefaultAssistantModel(assistantModelProvider),
+    interactive,
+    prompt: 'Assistant model',
+    placeholder: getDefaultAssistantModel(assistantModelProvider),
+  });
+  const assistantModelUrl = await resolveOptionalTextOption({
+    value: options.assistantModelUrl || getDefaultAssistantModelUrl(assistantModelProvider),
+    interactive: interactive && assistantModelProvider === 'custom-llm',
+    prompt: 'Assistant model URL',
+    placeholder: 'https://api.provider.com/v1',
+  });
   const assistantProviderApiKey =
-    options.assistantProviderApiKey ||
-    getAssistantProviderApiKey(assistantModelProvider) ||
-    '';
-  const embeddingProvider = options.embeddingProvider || 'openai';
-  const embeddingModel = options.embeddingModel || getDefaultEmbeddingModel(embeddingProvider);
+    await resolveOptionalTextOption({
+      value: options.assistantProviderApiKey || getAssistantProviderApiKey(assistantModelProvider) || '',
+      interactive,
+      prompt: `${assistantModelProvider} API key`,
+      secret: true,
+    });
+  const embeddingProvider = await resolveSelectOption({
+    value: options.embeddingProvider || 'openai',
+    interactive,
+    prompt: 'Embedding provider',
+    options: [
+      { value: 'openai', label: 'OpenAI' },
+      { value: 'gemini', label: 'Gemini' },
+    ],
+  });
+  const embeddingModel = await resolveTextOption({
+    value: options.embeddingModel || getDefaultEmbeddingModel(embeddingProvider),
+    interactive,
+    prompt: 'Embedding model',
+    placeholder: getDefaultEmbeddingModel(embeddingProvider),
+  });
   const explicitDimensions = options.embeddingDimensions ? Number(options.embeddingDimensions) : undefined;
+  const resolvedDimensions = await resolveTextOption({
+    value: explicitDimensions ? String(explicitDimensions) : '',
+    interactive: interactive && embeddingProvider === 'gemini',
+    prompt: 'Embedding dimensions',
+    placeholder: String(getEmbeddingDimensions(embeddingProvider, embeddingModel)),
+  });
+  const resolvedOpenAiKey =
+    embeddingProvider === 'openai'
+      ? await resolveTextOption({
+          value: openaiKey,
+          interactive,
+          prompt: 'OpenAI API key',
+          secret: true,
+        })
+      : openaiKey;
+  const resolvedGeminiKey =
+    embeddingProvider === 'gemini'
+      ? await resolveTextOption({
+          value: geminiKey,
+          interactive,
+          prompt: 'Gemini API key',
+          secret: true,
+        })
+      : geminiKey;
 
-  const embeddingDimensions = getEmbeddingDimensions(embeddingProvider, embeddingModel, explicitDimensions);
+  const embeddingDimensions = getEmbeddingDimensions(
+    embeddingProvider,
+    embeddingModel,
+    resolvedDimensions ? Number(resolvedDimensions) : explicitDimensions,
+  );
 
   const config: Config = {
     vapi: {
@@ -118,10 +225,10 @@ export async function runInit(options: InitOptions): Promise<void> {
       dimensions: embeddingDimensions
     },
     openai: {
-      apiKey: openaiKey
+      apiKey: resolvedOpenAiKey
     },
     gemini: {
-      apiKey: geminiKey
+      apiKey: resolvedGeminiKey
     },
     indexing: {
       include: ['src', 'lib'],
@@ -136,38 +243,55 @@ export async function runInit(options: InitOptions): Promise<void> {
 
   const errors = validateConfig(config);
   if (errors.length > 0) {
-    console.log('Configuration incomplete. Missing:', errors.join(', '));
+    if (interactive) {
+      p.note(errors.join('\n'), 'Missing configuration');
+    } else {
+      console.log('Configuration incomplete. Missing:', errors.join(', '));
+    }
   }
 
   if (qdrantUrl && qdrantKey) {
-    console.log('\nCreating Qdrant collection...');
+    const spinner = interactive ? p.spinner() : null;
+    if (spinner) spinner.start('Creating Qdrant collection');
+    else console.log('\nCreating Qdrant collection...');
     try {
       const qdrant = new QdrantCodeIndex(qdrantUrl, qdrantKey, collectionName);
       await qdrant.ensureCollection(embeddingDimensions);
-      console.log(`Collection "${collectionName}" ready`);
+      if (spinner) spinner.stop(`Collection "${collectionName}" ready`);
+      else console.log(`Collection "${collectionName}" ready`);
     } catch (error: any) {
-      console.log(`Could not create collection: ${error.message}`);
+      if (spinner) spinner.stop(`Could not create collection: ${error.message}`, 1);
+      else console.log(`Could not create collection: ${error.message}`);
     }
   }
 
   saveConfig(configPath, config);
-  console.log(`Wrote config to ${configPath}`);
+  if (interactive) {
+    p.note(configPath, 'Config written');
+  } else {
+    console.log(`Wrote config to ${configPath}`);
+  }
 
   if (fs.existsSync(gitignorePath)) {
     const gitignore = fs.readFileSync(gitignorePath, 'utf-8');
     if (!gitignore.includes('.saturday.config.json')) {
       fs.appendFileSync(gitignorePath, '\n# Saturday\n.saturday.config.json\n');
-      console.log('Updated .gitignore');
+      if (!interactive) console.log('Updated .gitignore');
     }
   } else {
     fs.writeFileSync(gitignorePath, '# Saturday\n.saturday.config.json\n');
-    console.log('Created .gitignore');
+    if (!interactive) console.log('Created .gitignore');
   }
 
-  console.log('\nSaturday initialized successfully!');
-  console.log('\nNext steps:');
-  console.log(' 1. Run `saturday sync` to index your codebase');
-  console.log(' 2. Run `saturday serve` to start the voice UI');
+  if (interactive) {
+    p.note('1. saturday sync\n2. saturday serve', 'Next steps');
+    p.outro('Saturday is ready.');
+  } else {
+    console.log('\nSaturday initialized successfully!');
+    console.log('\nNext steps:');
+    console.log(' 1. Run `saturday sync` to index your codebase');
+    console.log(' 2. Run `saturday serve` to start the voice UI');
+  }
 }
 
 function getDefaultAssistantModel(provider: string): string {
@@ -211,4 +335,60 @@ function getAssistantProviderApiKey(provider: string): string | undefined {
     if (process.env[envName]) return process.env[envName];
   }
   return undefined;
+}
+
+async function resolveTextOption(options: {
+  value: string;
+  interactive: boolean;
+  prompt: string;
+  placeholder?: string;
+  secret?: boolean;
+}): Promise<string> {
+  if (options.value) return options.value;
+  if (!options.interactive) return '';
+
+  const answer = options.secret
+    ? await p.password({ message: options.prompt })
+    : await p.text({ message: options.prompt, placeholder: options.placeholder });
+  return unwrapPromptValue(answer);
+}
+
+async function resolveOptionalTextOption(options: {
+  value?: string;
+  interactive: boolean;
+  prompt: string;
+  placeholder?: string;
+  secret?: boolean;
+}): Promise<string> {
+  if (options.value) return options.value;
+  if (!options.interactive) return '';
+
+  const answer = options.secret
+    ? await p.password({ message: options.prompt })
+    : await p.text({ message: options.prompt, placeholder: options.placeholder });
+  return unwrapPromptValue(answer);
+}
+
+async function resolveSelectOption<T extends string>(options: {
+  value: T;
+  interactive: boolean;
+  prompt: string;
+  options: Array<{ value: T; label: string }>;
+}): Promise<T> {
+  if (options.value) return options.value;
+  if (!options.interactive) return options.options[0].value;
+
+  const answer = await p.select({
+    message: options.prompt,
+    options: options.options,
+  });
+  return unwrapPromptValue(answer) as T;
+}
+
+function unwrapPromptValue<T>(value: T | symbol): T {
+  if (p.isCancel(value)) {
+    p.cancel('Initialization cancelled.');
+    process.exit(0);
+  }
+  return value;
 }

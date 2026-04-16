@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import * as p from '@clack/prompts';
 import * as fs from 'fs';
 import * as path from 'path';
 import fg from 'fast-glob';
@@ -38,6 +39,7 @@ export interface SyncOptions {
 
 export async function runSync(options: SyncOptions): Promise<void> {
   const configPath = path.resolve(process.cwd(), options.config || '.saturday.config.json');
+  const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
   if (!fs.existsSync(configPath)) {
     throw new Error('Config not found. Run `saturday init` first.');
@@ -45,7 +47,11 @@ export async function runSync(options: SyncOptions): Promise<void> {
 
   const config: Config = loadConfig(configPath);
 
-  console.log('Syncing codebase to Qdrant...\n');
+  if (interactive) {
+    p.intro('Saturday sync');
+  } else {
+    console.log('Syncing codebase to Qdrant...\n');
+  }
 
   const qdrant = new QdrantCodeIndex(
     config.qdrant.url,
@@ -70,7 +76,7 @@ export async function runSync(options: SyncOptions): Promise<void> {
 
   const indexing = config.indexing || { include: ['src'], exclude: [], extensions: ['.ts', '.js'] };
 
-  console.log('Scanning files...');
+  if (!interactive) console.log('Scanning files...');
   const patterns = indexing.include.map((dir: string) => `${dir}/**/*`);
   const files = await fg(patterns, {
     cwd: process.cwd(),
@@ -84,9 +90,13 @@ export async function runSync(options: SyncOptions): Promise<void> {
     return indexing.extensions.includes(ext);
   });
 
-  console.log(`Found ${filteredFiles.length} files to process`);
+  if (interactive) {
+    p.log.step(`Found ${filteredFiles.length} files to process`);
+  } else {
+    console.log(`Found ${filteredFiles.length} files to process`);
+  }
 
-  console.log('Chunking files...');
+  if (!interactive) console.log('Chunking files...');
   const allChunks: Chunk[] = [];
 
   for (const file of filteredFiles) {
@@ -95,9 +105,13 @@ export async function runSync(options: SyncOptions): Promise<void> {
     allChunks.push(...chunks);
   }
 
-  console.log(`Created ${allChunks.length} chunks`);
+  if (interactive) {
+    p.log.step(`Created ${allChunks.length} chunks`);
+  } else {
+    console.log(`Created ${allChunks.length} chunks`);
+  }
 
-  console.log('Comparing with existing data...');
+  if (!interactive) console.log('Comparing with existing data...');
   const existingHashes = await qdrant.getExistingHashes();
 
   const newChunks: Chunk[] = [];
@@ -141,31 +155,39 @@ export async function runSync(options: SyncOptions): Promise<void> {
     }
   }
 
-  console.log(`New: ${newChunks.length}`);
-  console.log(`Updated: ${updatedChunks.length}`);
-  console.log(`Unchanged: ${unchangedCount.value}`);
-  console.log(`Deleted: ${deletedFiles.length}`);
+  const summary = `New: ${newChunks.length}\nUpdated: ${updatedChunks.length}\nUnchanged: ${unchangedCount.value}\nDeleted: ${deletedFiles.length}`;
+  if (interactive) {
+    p.note(summary, 'Change summary');
+  } else {
+    console.log(`New: ${newChunks.length}`);
+    console.log(`Updated: ${updatedChunks.length}`);
+    console.log(`Unchanged: ${unchangedCount.value}`);
+    console.log(`Deleted: ${deletedFiles.length}`);
+  }
 
   if (deletedFiles.length > 0) {
-    console.log('\nRemoving deleted files...');
+    if (!interactive) console.log('\nRemoving deleted files...');
     const uniqueDeleted = [...new Set(deletedFiles)];
     for (const filePath of uniqueDeleted) {
       await qdrant.deleteByPath(filePath);
     }
-    console.log(`Removed ${uniqueDeleted.length} deleted file(s)`);
+    if (!interactive) console.log(`Removed ${uniqueDeleted.length} deleted file(s)`);
   }
 
   const toUpsert = [...newChunks, ...updatedChunks];
 
   if (toUpsert.length > 0) {
-    console.log('\nGenerating embeddings...');
+    const spinner = interactive ? p.spinner() : null;
+    if (spinner) spinner.start('Generating embeddings');
+    else console.log('\nGenerating embeddings...');
     const embeddings = await embedding.embedBatch(
       toUpsert.map((c: Chunk) => c.content),
       100,
       'RETRIEVAL_DOCUMENT',
     );
 
-    console.log('\nUploading to Qdrant...');
+    if (spinner) spinner.message('Uploading to Qdrant');
+    else console.log('\nUploading to Qdrant...');
     const points = toUpsert.map((chunk: Chunk, idx: number) => {
       const chunkKey = buildChunkKey({
         filePath: chunk.filePath,
@@ -190,9 +212,16 @@ export async function runSync(options: SyncOptions): Promise<void> {
       };
     });
     await qdrant.upsertBatch(points);
+    if (spinner) spinner.stop('Upload complete');
   }
 
-  console.log('\nSync complete!');
-  console.log(`${allChunks.length} total chunks indexed`);
-  console.log(`${newChunks.length} new, ${updatedChunks.length} updated, ${unchangedCount.value} unchanged`);
+  if (interactive) {
+    p.outro(
+      `${allChunks.length} chunks indexed. ${newChunks.length} new, ${updatedChunks.length} updated, ${unchangedCount.value} unchanged.`,
+    );
+  } else {
+    console.log('\nSync complete!');
+    console.log(`${allChunks.length} total chunks indexed`);
+    console.log(`${newChunks.length} new, ${updatedChunks.length} updated, ${unchangedCount.value} unchanged`);
+  }
 }

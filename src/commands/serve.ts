@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import * as p from '@clack/prompts';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
@@ -40,6 +41,7 @@ export interface ServeOptions {
 
 export async function runServe(options: ServeOptions): Promise<void> {
   const configPath = path.resolve(process.cwd(), options.config || '.saturday.config.json');
+  const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
   if (!fs.existsSync(configPath)) {
     throw new Error('Config not found. Run `saturday init` first.');
@@ -53,19 +55,31 @@ export async function runServe(options: ServeOptions): Promise<void> {
     host,
   };
 
-  console.log('Starting Saturday server...');
+  if (interactive) {
+    p.intro('Saturday serve');
+  } else {
+    console.log('Starting Saturday server...');
+  }
   await startServer(config, { configPath });
-  console.log(`Local server: http://${host}:${port}`);
+  if (interactive) {
+    p.log.step(`Local server: http://${host}:${port}`);
+  } else {
+    console.log(`Local server: http://${host}:${port}`);
+  }
 
-  console.log('Starting ngrok tunnel...');
+  const spinner = interactive ? p.spinner() : null;
+  if (spinner) spinner.start('Starting ngrok tunnel');
+  else console.log('Starting ngrok tunnel...');
   const ngrokUrl = await startNgrok(port);
-  console.log(`Public URL: ${ngrokUrl}`);
+  if (spinner) spinner.stop(`Public URL: ${ngrokUrl}`);
+  else console.log(`Public URL: ${ngrokUrl}`);
 
-  console.log('Creating Vapi assistant...');
+  if (spinner) spinner.start('Creating Vapi assistant');
+  else console.log('Creating Vapi assistant...');
   const vapi = new VapiService(config.vapi.privateKey);
 
   const toolId = await vapi.createSearchTool(`${ngrokUrl}/api/search`);
-  console.log(`Created tool: ${toolId}`);
+  if (!interactive) console.log(`Created tool: ${toolId}`);
 
   const assistantId = await vapi.createAssistant({
     name: 'Saturday',
@@ -78,13 +92,19 @@ export async function runServe(options: ServeOptions): Promise<void> {
     systemPrompt:
       'You are Saturday, a voice assistant for navigating code. Use the search_codebase tool whenever the user asks about code, architecture, modules, functions, or errors. Cite file paths in your answer.',
   });
-  console.log(`Created assistant: ${assistantId}`);
+  if (spinner) spinner.stop(`Assistant ready: ${assistantId}`);
+  else console.log(`Created assistant: ${assistantId}`);
 
   config.vapi.assistantId = assistantId;
   saveConfig(configPath, config);
 
-  console.log('Saturday ready.');
-  console.log(`Open ${ngrokUrl} in your browser.`);
+  if (interactive) {
+    p.note(`${host}:${port}\n${ngrokUrl}`, 'Endpoints');
+    p.outro('Saturday is ready.');
+  } else {
+    console.log('Saturday ready.');
+    console.log(`Open ${ngrokUrl} in your browser.`);
+  }
 }
 
 async function startNgrok(port: number): Promise<string> {
