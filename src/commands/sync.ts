@@ -1,17 +1,17 @@
 import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as fg from 'fast-glob';
-import { QdrantCodeIndex } from '../lib/qdrant-client';
+import fg from 'fast-glob';
+import { QdrantCodeIndex, CodeChunkPayload, buildChunkKey } from '../lib/qdrant-client';
 import { EmbeddingService } from '../lib/embedding';
-import { FileChunker } from '../lib/chunker';
+import { FileChunker, Chunk } from '../lib/chunker';
 import { loadConfig, Config } from '../lib/config';
 
 export function syncCommand(program: Command) {
   program
     .command('sync')
     .description('Sync codebase to Qdrant')
-    .option('--config <path>', 'Config file path', '.voicecoach.config.json')
+    .option('--config <path>', 'Config file path', '.saturday.config.json')
     .option('--full', 'Force full sync')
     .action(async (options) => {
       try {
@@ -29,15 +29,15 @@ export interface SyncOptions {
 }
 
 export async function runSync(options: SyncOptions): Promise<void> {
-  const configPath = path.join(process.cwd(), options.config || '.voicecoach.config.json');
+  const configPath = path.resolve(process.cwd(), options.config || '.saturday.config.json');
 
   if (!fs.existsSync(configPath)) {
-    throw new Error('Config not found. Run `voice-coach init` first.');
+    throw new Error('Config not found. Run `saturday init` first.');
   }
 
   const config: Config = loadConfig(configPath);
 
-  console.log('🔄 Syncing codebase to Qdrant...\n');
+  console.log('Syncing codebase to Qdrant...\n');
 
   const qdrant = new QdrantCodeIndex(
     config.qdrant.url,
@@ -45,27 +45,30 @@ export async function runSync(options: SyncOptions): Promise<void> {
     config.qdrant.collection
   );
 
-  const embedding = new EmbeddingService(config.openai.apiKey, config.embedding.model);
+  const embeddingModel = config.embedding?.model || 'text-embedding-3-small';
+  const embedding = new EmbeddingService(config.openai.apiKey, embeddingModel);
   const chunker = new FileChunker(50, 10);
 
-  console.log('📁 Scanning files...');
-  const patterns = config.indexing.include.map(dir => `${dir}/**/*`);
+  const indexing = config.indexing || { include: ['src'], exclude: [], extensions: ['.ts', '.js'] };
+
+  console.log('Scanning files...');
+  const patterns = indexing.include.map((dir: string) => `${dir}/**/*`);
   const files = await fg(patterns, {
     cwd: process.cwd(),
-    ignore: config.indexing.exclude,
+    ignore: indexing.exclude,
     absolute: true,
     onlyFiles: true
   });
 
-  const filteredFiles = files.filter(file => {
+  const filteredFiles = files.filter((file: string) => {
     const ext = path.extname(file);
-    return config.indexing.extensions.includes(ext);
+    return indexing.extensions.includes(ext);
   });
 
-  console.log(` Found ${filteredFiles.length} files to process`);
+  console.log(`Found ${filteredFiles.length} files to process`);
 
-  console.log('📝 Chunking files...');
-  const allChunks: any[] = [];
+  console.log('Chunking files...');
+  const allChunks: Chunk[] = [];
 
   for (const file of filteredFiles) {
     const content = fs.readFileSync(file, 'utf-8');
@@ -73,21 +76,22 @@ export async function runSync(options: SyncOptions): Promise<void> {
     allChunks.push(...chunks);
   }
 
-  console.log(` Created ${allChunks.length} chunks`);
+  console.log(`Created ${allChunks.length} chunks`);
 
-  console.log('🔍 Comparing with existing data...');
-  let existingHashes: Map<string, { id: string; hash: string }> = new Map();
+  console.log('Comparing with existing data...');
+  const existingHashes = await qdrant.getExistingHashes();
 
-  if (!options.full) {
-    existingHashes = await qdrant.getExistingHashes();
-  }
-
-  const newChunks: any[] = [];
-  const updatedChunks: any[] = [];
+  const newChunks: Chunk[] = [];
+  const updatedChunks: Chunk[] = [];
   const unchangedCount = { value: 0 };
 
   for (const chunk of allChunks) {
-    const key = `${chunk.filePath}:${chunk.functionName || 'top-level'}`;
+    const key = buildChunkKey({
+      filePath: chunk.filePath,
+      functionName: chunk.functionName || null,
+      startLine: chunk.startLine,
+      endLine: chunk.endLine,
+    });
     const existing = existingHashes.get(key);
 
     if (!existing) {
@@ -100,7 +104,16 @@ export async function runSync(options: SyncOptions): Promise<void> {
     }
   }
 
-  const currentKeys = new Set(allChunks.map((c: any) => `${c.filePath}:${c.functionName || 'top-level'}`));
+  const currentKeys = new Set(
+    allChunks.map((chunk: Chunk) =>
+      buildChunkKey({
+        filePath: chunk.filePath,
+        functionName: chunk.functionName || null,
+        startLine: chunk.startLine,
+        endLine: chunk.endLine,
+      }),
+    ),
+  );
   const deletedFiles: string[] = [];
 
   for (const key of existingHashes.keys()) {
@@ -109,45 +122,50 @@ export async function runSync(options: SyncOptions): Promise<void> {
     }
   }
 
-  console.log(` New: ${newChunks.length}`);
-  console.log(` Updated: ${updatedChunks.length}`);
-  console.log(` Unchanged: ${unchangedCount.value}`);
-  console.log(` Deleted: ${deletedFiles.length}`);
+  console.log(`New: ${newChunks.length}`);
+  console.log(`Updated: ${updatedChunks.length}`);
+  console.log(`Unchanged: ${unchangedCount.value}`);
+  console.log(`Deleted: ${deletedFiles.length}`);
 
   if (deletedFiles.length > 0) {
-    console.log('\n🗑️ Removing deleted files...');
+    console.log('\nRemoving deleted files...');
     const uniqueDeleted = [...new Set(deletedFiles)];
     for (const filePath of uniqueDeleted) {
       await qdrant.deleteByPath(filePath);
     }
-    console.log(` Removed ${uniqueDeleted.length} deleted file(s)`);
+    console.log(`Removed ${uniqueDeleted.length} deleted file(s)`);
   }
 
   const toUpsert = [...newChunks, ...updatedChunks];
 
   if (toUpsert.length > 0) {
-    console.log('\n🧠 Generating embeddings...');
-    const embeddings = await embedding.embedBatch(toUpsert.map((c: any) => c.content));
+    console.log('\nGenerating embeddings...');
+    const embeddings = await embedding.embedBatch(toUpsert.map((c: Chunk) => c.content));
 
-    console.log('\n📤 Uploading to Qdrant...');
-    await qdrant.upsertBatch(
-      toUpsert.map((chunk: any, idx: number) => ({
-        id: chunk.id || chunk.filePath + ':' + chunk.startLine,
-        vector: embeddings[idx],
+    console.log('\nUploading to Qdrant...');
+    const points = toUpsert.map((chunk: Chunk, idx: number) => ({
+      id: chunk.id || chunk.filePath + ':' + chunk.startLine,
+      vector: embeddings[idx],
         payload: {
           filePath: chunk.filePath,
           chunkHash: chunk.hash,
           language: chunk.language,
           functionName: chunk.functionName || null,
+          chunkKey: buildChunkKey({
+            filePath: chunk.filePath,
+            functionName: chunk.functionName || null,
+            startLine: chunk.startLine,
+            endLine: chunk.endLine,
+          }),
           startLine: chunk.startLine,
           endLine: chunk.endLine,
           lastSynced: Date.now()
-        }
-      }))
-    );
+      } as CodeChunkPayload
+    }));
+    await qdrant.upsertBatch(points);
   }
 
-  console.log('\n✅ Sync complete!');
-  console.log(` ${allChunks.length} total chunks indexed`);
-  console.log(` ${newChunks.length} new, ${updatedChunks.length} updated, ${unchangedCount.value} unchanged`);
+  console.log('\nSync complete!');
+  console.log(`${allChunks.length} total chunks indexed`);
+  console.log(`${newChunks.length} new, ${updatedChunks.length} updated, ${unchangedCount.value} unchanged`);
 }

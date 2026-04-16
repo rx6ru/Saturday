@@ -7,9 +7,9 @@ import { serveCommand } from './commands/serve';
 const program = new Command();
 
 program
-  .name('voice-coach')
+  .name('saturday')
   .description('Talk to your codebase through voice')
-  .version('1.0.0');
+  .version('1.0.1');
 
 initCommand(program);
 syncCommand(program);

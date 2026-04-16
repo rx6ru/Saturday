@@ -1,126 +1,205 @@
-// Note: tests use Node's http module directly instead of SuperTest to avoid extra deps
-import { startServer, getCodeIndex, getEmbeddingService } from './index';
-import { QdrantCodeIndex, EmbeddingService } from './index';
-import http from 'http';
+import { createSearchHandler } from './routes/search';
+import {
+  createConfigHandler,
+  createHealthHandler,
+  createStatsHandler,
+  createSyncHandler,
+} from './index';
 
-describe('startServer (TDD RED/GREEN/REFACTOR)', () => {
+function createResponse() {
+  return {
+    statusCode: 200,
+    body: undefined as any,
+    status(code: number) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload: any) {
+      this.body = payload;
+      return this;
+    },
+  };
+}
+
+describe('server handlers', () => {
   const config = {
-    qdrant: { host: 'http://localhost' },
-    embedding: { host: 'http://localhost' },
-    openai: { apiKey: 'test' },
-    server: { port: 3000 },
-  } as any;
+    vapi: {
+      publicKey: 'public-key',
+      privateKey: 'private-key',
+      assistantId: 'assistant-123',
+    },
+    qdrant: {
+      url: 'https://qdrant.example.com',
+      apiKey: 'qdrant-key',
+      collection: 'code-index',
+    },
+    embedding: {
+      provider: 'openai',
+      model: 'text-embedding-3-small',
+      dimensions: 1536,
+    },
+    openai: {
+      apiKey: 'openai-key',
+    },
+    server: {
+      port: 0,
+      host: '127.0.0.1',
+    },
+  };
 
-  let server: any;
-  function doRequest(options: http.RequestOptions, postData?: any): Promise<{ statusCode: number; headers: any; body: any }> {
-    return new Promise((resolve, reject) => {
-      const req = http.request(options, (res) => {
-        let data = '';
-        res.on('data', (chunk) => (data += chunk));
-        res.on('end', () => {
-          const contentType = res.headers['content-type'] || '';
-          let parsed: any = data;
-          try {
-            if (contentType.includes('application/json')) {
-              parsed = JSON.parse(data);
-            }
-          } catch {
-            // leave as raw string
-          }
-          resolve({ statusCode: res.statusCode || 0, headers: res.headers, body: parsed });
-        });
-      });
-      req.on('error', (e) => reject(e));
-      if (postData) {
-        req.write(postData);
-      }
-      req.end();
+  test('config handler returns frontend Vapi config', async () => {
+    const res = createResponse();
+
+    await createConfigHandler(config as any)({} as any, res as any);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      vapiPublicKey: 'public-key',
+      assistantId: 'assistant-123',
     });
-  }
-
-  beforeAll(async () => {
-    server = await startServer(config);
   });
 
-  afterAll(() => {
-    if (server && server.close) {
-      server.close();
-    }
-  });
+  test('health handler returns ok', async () => {
+    const res = createResponse();
 
-  test('startServer() creates Express app', async () => {
-    expect(server).toBeTruthy();
-    // http.Server should have listen function
-    expect(typeof server.listen).toBe('function');
-  });
+    await createHealthHandler()({} as any, res as any);
 
-  test('startServer() registers JSON middleware and API routes', async () => {
-    const options = { hostname: '127.0.0.1', port: 3000, path: '/api/search', method: 'POST', headers: { 'Content-Type': 'application/json' } } as any;
-    const res = await doRequest(options, JSON.stringify({ query: 'test' }));
     expect(res.statusCode).toBe(200);
-    expect(res.body).toHaveProperty('received');
-    expect(res.body.received).toHaveProperty('query', 'test');
+    expect(res.body.status).toBe('ok');
+    expect(typeof res.body.timestamp).toBe('number');
   });
 
-  test('startServer() registers static file serving for web directory', async () => {
-    const options = { hostname: '127.0.0.1', port: 3000, path: '/index.html', method: 'GET' } as any;
-    const res = await doRequest(options);
+  test('search handler handles simple Vapi tool-call format', async () => {
+    const req = {
+      body: {
+        message: {
+          type: 'tool-calls',
+          toolCallList: [
+            {
+              id: 'tool-1',
+              name: 'search_codebase',
+              arguments: {
+                query: 'How does login work?',
+              },
+            },
+          ],
+        },
+      },
+    };
+    const res = createResponse();
+    const handler = createSearchHandler(
+      {
+        search: jest.fn().mockResolvedValue([
+          {
+            id: 'point-1',
+            score: 0.91,
+            payload: {
+              filePath: 'src/auth/login.ts',
+              functionName: 'login',
+              startLine: 12,
+              endLine: 48,
+              chunkHash: 'abc',
+              language: 'typescript',
+            },
+          },
+        ]),
+      } as any,
+      {
+        embed: jest.fn().mockResolvedValue({
+          embedding: [0.1, 0.2, 0.3],
+          model: 'text-embedding-3-small',
+          usage: { prompt_tokens: 3, total_tokens: 3 },
+        }),
+      } as any,
+    );
+
+    await handler(req as any, res as any);
+
     expect(res.statusCode).toBe(200);
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.results[0].toolCallId).toBe('tool-1');
+    expect(res.body.results[0].result).toContain('src/auth/login.ts');
+    expect(res.body.results[0].result).toContain('login');
   });
 
-  test('startServer() registers GET /health endpoint', async () => {
-    const options = { hostname: '127.0.0.1', port: 3000, path: '/health', method: 'GET' } as any;
-    const res = await doRequest(options);
+  test('search handler handles nested Vapi tool-call format', async () => {
+    const req = {
+      body: {
+        message: {
+          type: 'tool-calls',
+          toolCallList: [
+            {
+              name: 'search_codebase',
+              toolCall: {
+                id: 'tool-2',
+                type: 'function',
+                function: {
+                  name: 'search_codebase',
+                  arguments: JSON.stringify({
+                    query: 'How is the server started?',
+                  }),
+                },
+              },
+            },
+          ],
+        },
+      },
+    };
+    const res = createResponse();
+    const handler = createSearchHandler(
+      {
+        search: jest.fn().mockResolvedValue([
+          {
+            id: 'point-1',
+            score: 0.88,
+            payload: {
+              filePath: 'src/server/index.ts',
+              functionName: 'startServer',
+              startLine: 10,
+              endLine: 42,
+              chunkHash: 'def',
+              language: 'typescript',
+            },
+          },
+        ]),
+      } as any,
+      {
+        embed: jest.fn().mockResolvedValue({
+          embedding: [0.1, 0.2, 0.3],
+          model: 'text-embedding-3-small',
+          usage: { prompt_tokens: 3, total_tokens: 3 },
+        }),
+      } as any,
+    );
+
+    await handler(req as any, res as any);
+
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ status: 'ok' });
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.results[0].toolCallId).toBe('tool-2');
+    expect(res.body.results[0].result).toContain('src/server/index.ts');
+    expect(res.body.results[0].result).toContain('startServer');
   });
 
-  test('startServer() registers POST /api/search endpoint', async () => {
-    const options = { hostname: '127.0.0.1', port: 3000, path: '/api/search', method: 'POST', headers: { 'Content-Type': 'application/json' } } as any;
-    const res = await doRequest(options, JSON.stringify({ query: 'hello' }));
+  test('sync handler triggers sync runner with config path', async () => {
+    const res = createResponse();
+    const syncRunner = jest.fn().mockResolvedValue(undefined);
+
+    await createSyncHandler(syncRunner, '/tmp/work/.saturday.config.json')({} as any, res as any);
+
     expect(res.statusCode).toBe(200);
-    expect(res.body).toHaveProperty('received');
+    expect(syncRunner).toHaveBeenCalledWith({ config: '/tmp/work/.saturday.config.json' });
+    expect(res.body.message).toContain('Sync complete');
   });
 
-  test('startServer() registers GET /api/config endpoint', async () => {
-    const options = { hostname: '127.0.0.1', port: 3000, path: '/api/config', method: 'GET' } as any;
-    const res = await doRequest(options);
+  test('stats handler returns Qdrant stats', async () => {
+    const res = createResponse();
+
+    await createStatsHandler({
+      getStats: jest.fn().mockResolvedValue({ pointCount: 42, status: 'green' }),
+    } as any)({} as any, res as any);
+
     expect(res.statusCode).toBe(200);
-    expect(res.body).toHaveProperty('port', 3000);
-  });
-
-  test('startServer() registers POST /api/sync endpoint', async () => {
-    const options = { hostname: '127.0.0.1', port: 3000, path: '/api/sync', method: 'POST', headers: { 'Content-Type': 'application/json' } } as any;
-    const res = await doRequest(options, JSON.stringify({ test: true }));
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ synced: true });
-  });
-
-  test('startServer() registers GET /api/stats endpoint', async () => {
-    const options = { hostname: '127.0.0.1', port: 3000, path: '/api/stats', method: 'GET' } as any;
-    const res = await doRequest(options);
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toHaveProperty('uptimeMs');
-  });
-
-  test('startServer() starts listening on configured port', async () => {
-    // Verify server.address() port matches config.port
-    const addr = server.address();
-    // address() can return string for unix sockets; ensure numeric port when present
-    if (typeof addr === 'object' && addr && 'port' in addr) {
-      expect((addr as any).port).toBe(3000);
-    } else {
-      // Fallback: ensure health endpoint still responds
-      const options = { hostname: '127.0.0.1', port: 3000, path: '/health', method: 'GET' } as any;
-      const res = await doRequest(options);
-      expect(res.statusCode).toBe(200);
-    }
-  });
-
-  test('Server initializes QdrantCodeIndex and EmbeddingService', async () => {
-    const codeIndex = getCodeIndex();
-    const embedding = getEmbeddingService();
-    expect(codeIndex).toBeInstanceOf(QdrantCodeIndex);
-    expect(embedding).toBeInstanceOf(EmbeddingService);
+    expect(res.body).toEqual({ pointCount: 42, status: 'green' });
   });
 });

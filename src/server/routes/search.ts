@@ -1,73 +1,131 @@
 import { Request, Response } from 'express';
-import { QdrantCodeIndex } from '../../lib/qdrant-client';
 import { EmbeddingService } from '../../lib/embedding';
+import { QdrantCodeIndex } from '../../lib/qdrant-client';
 
-interface ToolCall {
-  name: string;
+interface SimpleToolCall {
   id?: string;
-  toolCall?: {
-    id: string;
-    parameters: { query: string };
+  name?: string;
+  arguments?: {
+    query?: string;
   };
-  arguments?: { query: string };
 }
 
-interface WebhookMessage {
-  type: string;
-  call?: { id: string; status: string };
-  toolCallList?: ToolCall[];
+interface NestedToolCall {
+  name?: string;
+  toolCall?: {
+    id?: string;
+    parameters?: {
+      query?: string;
+    };
+    function?: {
+      name?: string;
+      arguments?: string;
+    };
+  };
+}
+
+function hasSimpleFields(toolCall: SimpleToolCall | NestedToolCall): toolCall is SimpleToolCall {
+  return 'arguments' in toolCall || 'id' in toolCall;
+}
+
+function hasNestedFields(toolCall: SimpleToolCall | NestedToolCall): toolCall is NestedToolCall {
+  return 'toolCall' in toolCall;
 }
 
 interface WebhookRequest {
-  message: WebhookMessage;
+  message?: {
+    type?: string;
+    toolCallList?: Array<SimpleToolCall | NestedToolCall>;
+  };
+}
+
+function getToolCallId(toolCall: SimpleToolCall | NestedToolCall): string | undefined {
+  if (hasSimpleFields(toolCall) && toolCall.id) {
+    return toolCall.id;
+  }
+  if (hasNestedFields(toolCall)) {
+    return toolCall.toolCall?.id;
+  }
+  return undefined;
+}
+
+function getQuery(toolCall: SimpleToolCall | NestedToolCall): string | undefined {
+  if (hasSimpleFields(toolCall) && toolCall.arguments?.query) {
+    return toolCall.arguments.query;
+  }
+
+  if (hasNestedFields(toolCall) && toolCall.toolCall?.parameters?.query) {
+    return toolCall.toolCall.parameters.query;
+  }
+
+  const rawArguments = hasNestedFields(toolCall) ? toolCall.toolCall?.function?.arguments : undefined;
+  if (!rawArguments) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(rawArguments);
+    return parsed.query;
+  } catch {
+    return undefined;
+  }
 }
 
 export function createSearchHandler(qdrant: QdrantCodeIndex, embedding: EmbeddingService) {
   return async (req: Request, res: Response) => {
     try {
-      const body: WebhookRequest = req.body;
+      const body = req.body as WebhookRequest;
 
       if (body.message?.type !== 'tool-calls') {
-        return res.json({ results: [] });
+        res.json({ results: [] });
+        return;
       }
 
-      const toolCalls = body.message.toolCallList || [];
-      const results: { toolCallId: string; result: string }[] = [];
+      const toolCallList = body.message.toolCallList || [];
+      const results: Array<{ toolCallId?: string; result: string }> = [];
 
-      for (const toolCall of toolCalls) {
-        if (toolCall.name !== 'search_codebase') continue;
-
-        const toolCallId = toolCall.id || toolCall.toolCall?.id;
-        const args = toolCall.arguments || toolCall.toolCall?.parameters;
-        const query = args?.query;
-
-        if (!query) continue;
-
-        const { embedding: queryVector } = await embedding.embed(query);
-        const searchResults = await qdrant.search(queryVector, 5);
-
-        let resultText: string;
-
-        if (searchResults.length === 0) {
-          resultText = 'No relevant code found in the codebase.';
-        } else {
-          const formattedResults = searchResults.map((r, i) => {
-            const p = r.payload;
-            const location = p.functionName
-              ? `${p.filePath} (${p.functionName})`
-              : `${p.filePath} (lines ${p.startLine}-${p.endLine})`;
-            return `[${i + 1}] ${location} (${(r.score * 100).toFixed(0)}% relevant)`;
-          });
-          resultText = `Found ${searchResults.length} relevant code section(s):\n\n${formattedResults.join('\n')}`;
+      for (const toolCall of toolCallList) {
+        const name = toolCall.name || (hasNestedFields(toolCall) ? toolCall.toolCall?.function?.name : undefined);
+        if (name && name !== 'search_codebase') {
+          continue;
         }
 
-        results.push({ toolCallId: toolCallId || '', result: resultText });
+        const query = getQuery(toolCall);
+        if (!query) {
+          continue;
+        }
+
+        const embedded = await embedding.embed(query);
+        const searchResults = await qdrant.search(embedded.embedding, 5);
+
+        if (searchResults.length === 0) {
+          results.push({
+            toolCallId: getToolCallId(toolCall),
+            result: 'No relevant code found in the indexed project.',
+          });
+          continue;
+        }
+
+        const lines = searchResults.map((result, index) => {
+          const payload = result.payload;
+          const location = payload.functionName
+            ? `${payload.filePath} (${payload.functionName})`
+            : `${payload.filePath} (lines ${payload.startLine}-${payload.endLine})`;
+          return `[${index + 1}] ${location} (${(result.score * 100).toFixed(0)}% match)`;
+        });
+
+        results.push({
+          toolCallId: getToolCallId(toolCall),
+          result: `Found ${searchResults.length} relevant code sections:\n${lines.join('\n')}`,
+        });
       }
 
       res.json({ results });
     } catch (error: any) {
-      console.error('Search handler error:', error);
-      res.status(500).json({ error: 'Search failed: ' + error.message, results: [] });
+      res.status(500).json({
+        error: `Search failed: ${error.message}`,
+        results: [],
+      });
     }
   };
 }

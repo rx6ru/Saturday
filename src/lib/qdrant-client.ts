@@ -1,20 +1,31 @@
-// QdrantCodeIndex module - RED/GREEN/TDD driven
-// Lightweight wrapper around @qdrant/js-client-rest used for code chunk indexing
-// Tests will mock the underlying Qdrant client
-
 export interface CodeChunkPayload {
   filePath: string;
   chunkHash: string;
   language: string;
-  functionName?: string;
+  functionName?: string | null;
+  chunkKey?: string;
   startLine?: number;
   endLine?: number;
-  lastSynced?: string;
+  lastSynced?: number;
 }
 
 export interface SearchResult {
-  chunk: CodeChunkPayload;
+  id: string;
   score: number;
+  payload: CodeChunkPayload;
+}
+
+export function buildChunkKey(payload: {
+  filePath: string;
+  functionName?: string | null;
+  startLine?: number;
+  endLine?: number;
+}): string {
+  const functionPart = payload.functionName || 'top-level';
+  if (payload.startLine && payload.endLine) {
+    return `${payload.filePath}:${functionPart}:${payload.startLine}:${payload.endLine}`;
+  }
+  return `${payload.filePath}:${functionPart}`;
 }
 
 export class QdrantCodeIndex {
@@ -25,99 +36,90 @@ export class QdrantCodeIndex {
 
   constructor(url: string, apiKey: string, collection: string, client?: any) {
     this.collection = collection;
-    // Allow injection of a mock client for tests
     if (client) {
       this.client = client;
     } else {
-      // Lazy require to avoid forcing a runtime import in tests
       const { QdrantClient } = require('@qdrant/js-client-rest');
-      this.client = new QdrantClient({ address: url, apiKey });
+      this.client = new QdrantClient({ url, apiKey });
     }
   }
 
   async ensureCollection(vectorSize: number): Promise<void> {
-    const getCols = this.client.getCollections?.bind(this.client) as (() => any) | undefined;
-    const cols = getCols ? await getCols() : [];
-    const exists = (cols || []).find((c: any) => c?.name === this.collection);
+    const collections = await this.client.getCollections();
+    const exists = (collections?.collections || []).find((c: any) => c?.name === this.collection);
     if (!exists) {
-      const create = this.client.createCollection?.bind(this.client) as ((args: any) => any) | undefined;
-      if (create) {
-        await create({ name: this.collection, vectorSize });
-      }
+      await this.client.createCollection(this.collection, {
+        vectors: { size: vectorSize, distance: 'Cosine' }
+      });
     }
   }
 
-  async getExistingHashes(): Promise<Map<string, CodeChunkPayload>> {
-    const map = new Map<string, CodeChunkPayload>();
-    const scroll = this.client.scroll?.bind(this.client) as ((args: any) => any) | undefined;
-    const pageSize = this.batchSize;
-    let offset = 0;
+  async getExistingHashes(): Promise<Map<string, { id: string; hash: string }>> {
+    const map = new Map<string, { id: string; hash: string }>();
+    let offset: string | undefined = undefined;
+
     while (true) {
-      const res = scroll ? await scroll({ collectionName: this.collection, limit: pageSize, offset }) : { points: [] };
-      const points: any[] = (res as any)?.points ?? [];
-      for (const p of points) {
-        const payload = p?.payload as CodeChunkPayload | undefined;
-        if (payload?.chunkHash) {
-          map.set(payload.chunkHash, payload as CodeChunkPayload);
-        }
+      const result: { points: any[]; next_page_offset?: string } = await this.client.scroll(this.collection, {
+        limit: this.batchSize,
+        offset,
+        with_payload: true,
+        with_vector: false
+      });
+
+      for (const point of result.points || []) {
+        const payload = point.payload as CodeChunkPayload;
+        const key = payload.chunkKey || buildChunkKey(payload);
+        map.set(key, { id: point.id as string, hash: payload.chunkHash });
       }
-      if ((points?.length ?? 0) < pageSize) break;
-      offset += pageSize;
+
+      offset = result.next_page_offset;
+      if (!offset) break;
     }
+
     return map;
   }
 
-  async upsertBatch(points: CodeChunkPayload[]): Promise<void> {
-    const upsert = this.client.upsert?.bind(this.client) as ((args: any) => any) | undefined;
-    if (!upsert) return;
-    const chunks: CodeChunkPayload[][] = [];
+  async upsertBatch(points: Array<{ id: string; vector: number[]; payload: CodeChunkPayload }>): Promise<void> {
     for (let i = 0; i < points.length; i += this.batchSize) {
-      chunks.push(points.slice(i, i + this.batchSize));
-    }
-    for (const batch of chunks) {
-      const batchPoints = batch.map((p) => {
-        return {
-          id: p.chunkHash,
-          vector: this.vectorFrom(p),
-          payload: p,
-        };
+      const batch = points.slice(i, i + this.batchSize);
+      await this.client.upsert(this.collection, {
+        points: batch.map(p => ({
+          id: p.id,
+          vector: p.vector,
+          payload: p.payload
+        }))
       });
-      await upsert({ collectionName: this.collection, points: batchPoints });
     }
   }
 
   async deleteByPath(filePath: string): Promise<void> {
-    const del = this.client.deleteByFilter?.bind(this.client) as ((args: any) => any) | undefined;
-    if (!del) return;
-    await del({ collectionName: this.collection, filter: { filePath } });
+    await this.client.delete(this.collection, {
+      filter: {
+        must: [{ key: 'filePath', match: { value: filePath } }]
+      }
+    });
   }
 
   async search(vector: number[], limit: number = this.searchLimit): Promise<SearchResult[]> {
-    const search = this.client.search?.bind(this.client) as ((args: any) => any) | undefined;
-    if (!search) return [];
-    const res = await search({ collectionName: this.collection, vector, limit, with_payload: true });
-    const hits: any[] = (res as any)?.result ?? [];
-    return hits.map((h) => ({ chunk: h.payload as CodeChunkPayload, score: h.score }));
+    const results = await this.client.search(this.collection, {
+      vector,
+      limit,
+      with_payload: true,
+      with_vector: false
+    });
+
+    return (results || []).map((r: any) => ({
+      id: r.id,
+      score: r.score,
+      payload: r.payload as CodeChunkPayload
+    }));
   }
 
   async getStats(): Promise<{ pointCount: number; status: string }> {
-    const stats = this.client.collectionStats?.bind(this.client) as ((args: any) => any) | undefined;
-    if (!stats) return { pointCount: 0, status: 'unknown' };
-    const res = await stats({ collectionName: this.collection });
+    const info = await this.client.getCollection(this.collection);
     return {
-      pointCount: (res as any)?.pointsCount ?? 0,
-      status: (res as any)?.status ?? 'unknown',
+      pointCount: info?.points_count || 0,
+      status: info?.status || 'unknown'
     };
-  }
-
-  private vectorFrom(p: CodeChunkPayload): number[] {
-    // Simple deterministic fallback vector derived from chunkHash and filePath
-    const seed = `${p.chunkHash}|${p.filePath}`;
-    const vec: number[] = [];
-    for (let i = 0; i < 128; i++) {
-      const ch = seed.charCodeAt(i % seed.length) || 0;
-      vec.push(((ch * 131 + i) % 1000) / 1000);
-    }
-    return vec;
   }
 }

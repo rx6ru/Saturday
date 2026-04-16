@@ -3,9 +3,12 @@ node_modules/
 
 # Build output
 dist/
+*.tgz
 
 # Config (contains secrets)
 .voicecoach.config.json
+.saturday.config.json
 
-# Development docs
 .devdocs/
+.omx/
+.codex

@@ -9,7 +9,7 @@ async function init() {
     config = await response.json();
 
     if (!config.vapiPublicKey || !config.assistantId) {
-      showError('Configuration incomplete. Run voice-coach serve again.');
+      showError('Configuration incomplete. Run saturday serve again.');
       return;
     }
 
@@ -18,7 +18,7 @@ async function init() {
     setupUIEvents();
     await fetchSyncStatus();
 
-    console.log('Voice Coach initialized');
+    console.log('Saturday initialized');
   } catch (error) {
     showError('Initialization failed: ' + error.message);
   }
@@ -39,14 +39,14 @@ function setupVapiEvents() {
   vapi.on('call-start', () => {
     document.getElementById('status').textContent = 'Listening...';
     document.getElementById('talkBtn').classList.add('active');
-    document.getElementById('talkBtn').textContent = '⏹️ Stop';
+    document.getElementById('talkBtn').textContent = 'Stop';
   });
 
   vapi.on('call-end', () => {
     document.getElementById('orb').classList.remove('speaking', 'listening');
     document.getElementById('status').textContent = 'Click to start';
     document.getElementById('talkBtn').classList.remove('active');
-    document.getElementById('talkBtn').textContent = '🎙️ Talk';
+    document.getElementById('talkBtn').textContent = 'Talk';
   });
 
   vapi.on('volume-level', (volume) => {

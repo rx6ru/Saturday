@@ -18,7 +18,6 @@ describe('Config module (TDD)', () => {
   });
 
   afterAll(() => {
-    // Cleanup
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch { /* ignore */ }
@@ -30,9 +29,9 @@ describe('Config module (TDD)', () => {
       vapi: { publicKey: 'pub', privateKey: 'priv' },
       qdrant: { url: 'http://localhost:6333', apiKey: 'q_api', collection: 'col' },
       openai: { apiKey: 'openai-key' },
-      embedding: { model: 'text-embedding-ada-002' },
-      indexing: { exclude: ['node_modules'] },
-      server: { port: 8080 },
+      embedding: { provider: 'openai', model: 'text-embedding-3-small', dimensions: 1536 },
+      indexing: { include: ['src'], exclude: ['node_modules'], extensions: ['.ts'] },
+      server: { port: 8080, host: 'localhost' },
     };
     fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), 'utf-8');
 
@@ -53,7 +52,6 @@ describe('Config module (TDD)', () => {
 
   test('loadConfig validates required fields', () => {
     const invalidPath = path.join(tmpDir, 'invalid.config.json');
-    // Missing several required fields
     const invalidCfg = {
       vapi: { publicKey: '', privateKey: '' },
       qdrant: { url: '', apiKey: '', collection: '' },
@@ -69,9 +67,9 @@ describe('Config module (TDD)', () => {
       vapi: { publicKey: 'pub', privateKey: 'priv' },
       qdrant: { url: 'http://example', apiKey: 'k', collection: 'c' },
       openai: { apiKey: 'openai' },
-      embedding: { model: 'text-embedding-ada-002' },
-      indexing: { exclude: [] },
-      server: { port: 3000 },
+      embedding: { provider: 'openai', model: 'text-embedding-3-small', dimensions: 1536 },
+      indexing: { include: ['src'], exclude: [], extensions: ['.ts'] },
+      server: { port: 3000, host: 'localhost' },
     };
     saveConfig(cfgPath, cfg);
     const content = fs.readFileSync(cfgPath, 'utf-8');
@@ -93,8 +91,8 @@ describe('Config module (TDD)', () => {
 
   test('getDefaultConfig returns sensible defaults', () => {
     const def = getDefaultConfig();
-    expect(def.embedding?.model).toBe('text-embedding-ada-002');
-    expect(def.indexing?.exclude).toEqual([]);
+    expect(def.embedding?.model).toBe('text-embedding-3-small');
+    expect(def.indexing?.exclude).toContain('node_modules');
     expect(def.server?.port).toBe(3000);
   });
 });

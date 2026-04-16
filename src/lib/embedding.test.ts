@@ -1,7 +1,8 @@
 import { EmbeddingService } from './embedding';
 
+const mockCreate = jest.fn();
+
 jest.mock('openai', () => {
-  const mockCreate = jest.fn();
   return {
     __esModule: true,
     default: jest.fn().mockImplementation(() => ({
@@ -14,12 +15,10 @@ jest.mock('openai', () => {
 
 describe('EmbeddingService', () => {
   let service: EmbeddingService;
-  let mockCreate: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
     service = new EmbeddingService('test-api-key', 'text-embedding-3-small');
-    mockCreate = (service as any).openai.embeddings.create;
   });
 
   test('embed() creates embedding for single text', async () => {

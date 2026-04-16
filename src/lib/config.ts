@@ -1,10 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-// PDA-01-Architecture.md: Config schema (272-301) mapped here
 export interface VapiConfig {
   publicKey: string;
   privateKey: string;
+  assistantId?: string | null;
 }
 
 export interface QdrantConfig {
@@ -18,15 +18,20 @@ export interface OpenAiConfig {
 }
 
 export interface EmbeddingConfig {
+  provider: string;
   model: string;
+  dimensions: number;
 }
 
 export interface IndexingConfig {
+  include: string[];
   exclude: string[];
+  extensions: string[];
 }
 
 export interface ServerConfig {
   port: number;
+  host: string;
 }
 
 export interface Config {
@@ -38,34 +43,38 @@ export interface Config {
   server?: ServerConfig;
 }
 
-// Default values for optional fields
 export function getDefaultConfig(): Config {
   return {
     vapi: {
       publicKey: '',
       privateKey: '',
+      assistantId: null
     },
     qdrant: {
       url: '',
       apiKey: '',
-      collection: '',
+      collection: ''
     },
     openai: {
-      apiKey: '',
+      apiKey: ''
     },
     embedding: {
-      model: 'text-embedding-ada-002',
+      provider: 'openai',
+      model: 'text-embedding-3-small',
+      dimensions: 1536
     },
     indexing: {
-      exclude: [],
+      include: ['src', 'lib'],
+      exclude: ['node_modules', '.git', 'dist', 'build'],
+      extensions: ['.ts', '.js', '.tsx', '.jsx', '.py', '.md']
     },
     server: {
       port: 3000,
-    },
+      host: '127.0.0.1'
+    }
   };
 }
 
-// Basic validator: returns an array of missing/invalid fields (empty => valid)
 export function validateConfig(cfg: Config): string[] {
   const errors: string[] = [];
   if (!cfg?.vapi?.publicKey) errors.push('vapi.publicKey is required');
@@ -77,7 +86,6 @@ export function validateConfig(cfg: Config): string[] {
   return errors;
 }
 
-// Load a config from a JSON file. Throws on missing file or invalid JSON or invalid schema
 export function loadConfig(configPath: string): Config {
   const fullPath = path.resolve(configPath);
   if (!fs.existsSync(fullPath)) {
@@ -90,7 +98,6 @@ export function loadConfig(configPath: string): Config {
   } catch (e) {
     throw new Error('Invalid JSON in config file');
   }
-  // Basic structural enforcement: ensure object shape exists
   const cfg = parsed as Config;
   const errors = validateConfig(cfg);
   if (errors.length > 0) {
@@ -99,15 +106,11 @@ export function loadConfig(configPath: string): Config {
   return cfg;
 }
 
-// Save a Config to a JSON file
 export function saveConfig(configPath: string, cfg: Config): void {
   const fullPath = path.resolve(configPath);
-  // Ensure directory exists
   const dir = path.dirname(fullPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.writeFileSync(fullPath, JSON.stringify(cfg, null, 2), 'utf-8');
 }
-
-// end

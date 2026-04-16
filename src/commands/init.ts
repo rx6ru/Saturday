@@ -2,12 +2,12 @@ import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
 import { QdrantCodeIndex } from '../lib/qdrant-client';
-import { loadConfig, saveConfig, validateConfig, getDefaultConfig, Config } from '../lib/config';
+import { loadConfig, saveConfig, validateConfig, Config } from '../lib/config';
 
 export function initCommand(program: Command) {
   program
     .command('init')
-    .description('Initialize Voice Coach configuration')
+    .description('Initialize Saturday configuration')
     .option('--vapi-public-key <key>', 'Vapi public API key')
     .option('--vapi-private-key <key>', 'Vapi private API key')
     .option('--qdrant-url <url>', 'Qdrant cluster URL')
@@ -15,6 +15,7 @@ export function initCommand(program: Command) {
     .option('--qdrant-collection <name>', 'Qdrant collection name')
     .option('--openai-key <key>', 'OpenAI API key')
     .option('--embedding-model <model>', 'Embedding model', 'text-embedding-3-small')
+    .option('--force', 'Overwrite existing config')
     .action(async (options) => {
       try {
         await runInit(options);
@@ -35,15 +36,16 @@ export interface InitOptions {
   embeddingModel?: string;
   configPath?: string;
   gitignorePath?: string;
+  force?: boolean;
 }
 
 export async function runInit(options: InitOptions): Promise<void> {
-  const configPath = options.configPath || path.join(process.cwd(), '.voicecoach.config.json');
-  const gitignorePath = options.gitignorePath || path.join(process.cwd(), '.gitignore');
+  const configPath = path.resolve(options.configPath || path.join(process.cwd(), '.saturday.config.json'));
+  const gitignorePath = path.resolve(options.gitignorePath || path.join(process.cwd(), '.gitignore'));
 
-  console.log('🎤 Voice Coach Setup\n');
+  console.log('Saturday Setup\n');
 
-  if (fs.existsSync(configPath)) {
+  if (fs.existsSync(configPath) && !options.force) {
     console.log('Config already exists. Overwrite with --force or delete first.');
     return;
   }
@@ -84,7 +86,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     },
     server: {
       port: 3000,
-      host: 'localhost'
+      host: '127.0.0.1'
     }
   };
 
@@ -94,29 +96,32 @@ export async function runInit(options: InitOptions): Promise<void> {
   }
 
   if (qdrantUrl && qdrantKey) {
-    console.log('\n📦 Creating Qdrant collection...');
+    console.log('\nCreating Qdrant collection...');
     try {
       const qdrant = new QdrantCodeIndex(qdrantUrl, qdrantKey, collectionName);
       await qdrant.ensureCollection(embeddingDimensions);
-      console.log(`✓ Collection "${collectionName}" ready`);
+      console.log(`Collection "${collectionName}" ready`);
     } catch (error: any) {
-      console.log(`⚠ Could not create collection: ${error.message}`);
+      console.log(`Could not create collection: ${error.message}`);
     }
   }
 
   saveConfig(configPath, config);
-  console.log(`✓ Wrote config to ${configPath}`);
+  console.log(`Wrote config to ${configPath}`);
 
   if (fs.existsSync(gitignorePath)) {
     const gitignore = fs.readFileSync(gitignorePath, 'utf-8');
-    if (!gitignore.includes('.voicecoach.config.json')) {
-      fs.appendFileSync(gitignorePath, '\n# Voice Coach\n.voicecoach.config.json\n');
-      console.log('✓ Updated .gitignore');
+    if (!gitignore.includes('.saturday.config.json')) {
+      fs.appendFileSync(gitignorePath, '\n# Saturday\n.saturday.config.json\n');
+      console.log('Updated .gitignore');
     }
+  } else {
+    fs.writeFileSync(gitignorePath, '# Saturday\n.saturday.config.json\n');
+    console.log('Created .gitignore');
   }
 
-  console.log('\n✅ Voice Coach initialized successfully!');
+  console.log('\nSaturday initialized successfully!');
   console.log('\nNext steps:');
-  console.log(' 1. Run `voice-coach sync` to index your codebase');
-  console.log(' 2. Run `voice-coach serve` to start the voice UI');
+  console.log(' 1. Run `saturday sync` to index your codebase');
+  console.log(' 2. Run `saturday serve` to start the voice UI');
 }

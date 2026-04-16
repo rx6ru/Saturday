@@ -1,103 +1,101 @@
-import express, { Request, Response, NextFunction } from 'express';
-import path from 'path';
+import express, { Express, Request, Response } from 'express';
 import http from 'http';
+import path from 'path';
+import { runSync, SyncOptions } from '../commands/sync';
+import { Config } from '../lib/config';
+import { EmbeddingService } from '../lib/embedding';
+import { QdrantCodeIndex } from '../lib/qdrant-client';
+import { createSearchHandler } from './routes/search';
 
-// Lightweight stubs for external components
-export class QdrantCodeIndex {
-  config: any;
-  initialized: boolean;
-  constructor(config: any) {
-    this.config = config;
-    this.initialized = true;
-  }
+export interface ServerDependencies {
+  qdrant?: Pick<QdrantCodeIndex, 'getStats' | 'search'>;
+  embedding?: Pick<EmbeddingService, 'embed'>;
+  syncRunner?: (options: SyncOptions) => Promise<void>;
+  configPath?: string;
 }
 
-export class EmbeddingService {
-  config: any;
-  initialized: boolean;
-  constructor(config: any) {
-    this.config = config;
-    this.initialized = true;
-  }
-}
-
-// Internal singletons used by tests to verify initialization
-let _codeIndex: QdrantCodeIndex | null = null;
-let _embeddingService: EmbeddingService | null = null;
-
-export function getCodeIndex(): QdrantCodeIndex | null {
-  return _codeIndex;
-}
-
-export function getEmbeddingService(): EmbeddingService | null {
-  return _embeddingService;
-}
-
-export interface ServerConfig {
-  qdrant?: any;
-  embedding?: any;
-  openai?: any;
-  server: {
-    port?: number;
+export function createHealthHandler() {
+  return (_req: Request, res: Response) => {
+    res.json({ status: 'ok', timestamp: Date.now() });
   };
 }
 
-// Simple search handler factory to satisfy tests
-export function createSearchHandler(_config: ServerConfig) {
-  return (req: Request, res: Response) => {
-    // Echo back the received query for test visibility
-    const body = req.body || {};
-    res.json({ received: body, results: [] });
+export function createConfigHandler(config: Config) {
+  return (_req: Request, res: Response) => {
+    res.json({
+      vapiPublicKey: config.vapi.publicKey,
+      assistantId: config.vapi.assistantId || '',
+    });
   };
 }
 
-/**
- * Start a minimal Express server according to the PDA spec.
- * - Exposes JSON parsing middleware
- * - Serves static files from src/web
- * - Registers health and API endpoints
- * - Initializes QdrantCodeIndex and EmbeddingService
- */
-export async function startServer(config: ServerConfig): Promise<http.Server> {
+export function createSyncHandler(
+  syncRunner: (options: SyncOptions) => Promise<void>,
+  configPath: string,
+) {
+  return async (_req: Request, res: Response) => {
+    try {
+      await syncRunner({ config: configPath });
+      res.json({
+        message: 'Sync complete',
+        timestamp: Date.now(),
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        error: `Sync failed: ${error.message}`,
+      });
+    }
+  };
+}
+
+export function createStatsHandler(qdrant: Pick<QdrantCodeIndex, 'getStats'>) {
+  return async (_req: Request, res: Response) => {
+    try {
+      const stats = await qdrant.getStats();
+      res.json(stats);
+    } catch (error: any) {
+      res.status(500).json({
+        error: `Stats failed: ${error.message}`,
+      });
+    }
+  };
+}
+
+export function createApp(config: Config, dependencies: ServerDependencies = {}): Express {
   const app = express();
-  // JSON middleware
-  app.use(express.json());
-
-  // Initialize core services (no real network calls in tests)
-  _codeIndex = new QdrantCodeIndex(config);
-  _embeddingService = new EmbeddingService(config);
-
-  // Static web assets
+  const qdrant =
+    dependencies.qdrant ||
+    new QdrantCodeIndex(config.qdrant.url, config.qdrant.apiKey, config.qdrant.collection);
+  const embedding =
+    dependencies.embedding ||
+    new EmbeddingService(config.openai.apiKey, config.embedding?.model || 'text-embedding-3-small');
+  const syncRunner = dependencies.syncRunner || runSync;
+  const configPath = dependencies.configPath || '.saturday.config.json';
   const staticDir = path.resolve(__dirname, '..', 'web');
+
+  app.use(express.json());
   app.use(express.static(staticDir));
 
-  // Health endpoint
-  app.get('/health', (_req: Request, res: Response) => {
-    res.json({ status: 'ok' });
-  });
+  app.get('/health', createHealthHandler());
+  app.post('/api/search', createSearchHandler(qdrant as QdrantCodeIndex, embedding as EmbeddingService));
+  app.get('/api/config', createConfigHandler(config));
+  app.post('/api/sync', createSyncHandler(syncRunner, configPath));
+  app.get('/api/stats', createStatsHandler(qdrant));
 
-  // API endpoints
-  const searchHandler = createSearchHandler(config);
-  app.post('/api/search', searchHandler);
-  app.get('/api/config', (_req: Request, res: Response) => {
-    res.json({ port: config.server?.port ?? 3000, initialized: true, hasIndex: _codeIndex?.initialized ?? false });
-  });
-  app.post('/api/sync', (_req: Request, res: Response) => {
-    res.json({ synced: true });
-  });
-  app.get('/api/stats', (_req: Request, res: Response) => {
-    res.json({ uptimeMs: 0, requests: 0 });
-  });
+  return app;
+}
 
-  // Start listening on the configured port (default 3000)
+export async function startServer(
+  config: Config,
+  dependencies: ServerDependencies = {},
+): Promise<http.Server> {
+  const app = createApp(config, dependencies);
   const port = config.server?.port ?? 3000;
+  const host = config.server?.host ?? '127.0.0.1';
+
   return new Promise<http.Server>((resolve, reject) => {
-    const server = app.listen(port, () => {
-      resolve(server);
-    });
-    server.on('error', (err) => {
-      reject(err);
-    });
+    const server = app.listen(port, host, () => resolve(server));
+    server.on('error', reject);
   });
 }
 

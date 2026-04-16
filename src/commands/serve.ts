@@ -4,12 +4,13 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 import { loadConfig, saveConfig, Config } from '../lib/config';
 import { VapiService } from '../lib/vapi-client';
+import { startServer } from '../server';
 
 export function serveCommand(program: Command) {
   program
     .command('serve')
     .description('Start voice UI server')
-    .option('--config <path>', 'Config file path', '.voicecoach.config.json')
+    .option('--config <path>', 'Config file path', '.saturday.config.json')
     .option('--port <port>', 'Server port', '3000')
     .action(async (options) => {
       try {
@@ -27,43 +28,49 @@ export interface ServeOptions {
 }
 
 export async function runServe(options: ServeOptions): Promise<void> {
-  const configPath = path.join(process.cwd(), options.config || '.voicecoach.config.json');
+  const configPath = path.resolve(process.cwd(), options.config || '.saturday.config.json');
 
   if (!fs.existsSync(configPath)) {
-    throw new Error('Config not found. Run `voice-coach init` first.');
+    throw new Error('Config not found. Run `saturday init` first.');
   }
 
   const config: Config = loadConfig(configPath);
-  const port = parseInt(options.port || '3000') || config.server.port;
+  const port = parseInt(options.port || '', 10) || config.server?.port || 3000;
+  const host = config.server?.host || '127.0.0.1';
+  config.server = {
+    port,
+    host,
+  };
 
-  console.log('🚀 Starting Voice Coach server...\n');
+  console.log('Starting Saturday server...');
+  await startServer(config, { configPath });
+  console.log(`Local server: http://${host}:${port}`);
 
-  console.log('🌐 Starting ngrok tunnel...');
+  console.log('Starting ngrok tunnel...');
   const ngrokUrl = await startNgrok(port);
-  console.log(` Public URL: ${ngrokUrl}`);
+  console.log(`Public URL: ${ngrokUrl}`);
 
-  console.log('\n🤖 Creating Vapi assistant...');
+  console.log('Creating Vapi assistant...');
   const vapi = new VapiService(config.vapi.privateKey);
 
-  const tool = await vapi.createSearchTool(`${ngrokUrl}/api/search`);
-  console.log(` Created tool: ${tool.toolId}`);
+  const toolId = await vapi.createSearchTool(`${ngrokUrl}/api/search`);
+  console.log(`Created tool: ${toolId}`);
 
-  const assistant = await vapi.createAssistant({
-    name: 'Voice Coach',
+  const assistantId = await vapi.createAssistant({
+    name: 'Saturday',
     model: 'gpt-4o',
     voiceId: 'Harry',
-    toolId: tool.toolId
+    toolId,
+    systemPrompt:
+      'You are Saturday, a voice assistant for navigating code. Use the search_codebase tool whenever the user asks about code, architecture, modules, functions, or errors. Cite file paths in your answer.',
   });
-  console.log(` Created assistant: ${assistant.id}`);
+  console.log(`Created assistant: ${assistantId}`);
 
-  config.vapi.assistantId = assistant.id;
+  config.vapi.assistantId = assistantId;
   saveConfig(configPath, config);
 
-  console.log(`\n🖥️ Starting server on port ${port}...`);
-  console.log('\n✅ Voice Coach ready!');
-  console.log(`\n📖 Open ${ngrokUrl} in your browser\n`);
-
-  console.log('\nNote: For full server functionality, import and run startServer from src/server');
+  console.log('Saturday ready.');
+  console.log(`Open ${ngrokUrl} in your browser.`);
 }
 
 async function startNgrok(port: number): Promise<string> {
@@ -72,6 +79,11 @@ async function startNgrok(port: number): Promise<string> {
 
     let output = '';
     let resolved = false;
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        reject(new Error('ngrok timeout'));
+      }
+    }, 10000);
 
     ngrok.stdout?.on('data', (data) => {
       output += data.toString();
@@ -79,6 +91,7 @@ async function startNgrok(port: number): Promise<string> {
         const match = output.match(/https:\/\/[^\s]+/);
         if (match) {
           resolved = true;
+          clearTimeout(timeout);
           resolve(match[0]);
         }
       }
@@ -89,13 +102,8 @@ async function startNgrok(port: number): Promise<string> {
     });
 
     ngrok.on('error', (error) => {
+      clearTimeout(timeout);
       reject(new Error(`ngrok failed: ${error.message}. Make sure ngrok is installed.`));
     });
-
-    setTimeout(() => {
-      if (!resolved) {
-        reject(new Error('ngrok timeout'));
-      }
-    }, 10000);
   });
 }
