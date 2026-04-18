@@ -92,6 +92,78 @@ describe('runInit', () => {
     expect(config.gemini.apiKey).toBe('gemini-key');
   });
 
+  test('fills default model values when they are omitted in non-interactive init', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'saturday-init-defaults-'));
+    const configPath = path.join(tempDir, '.saturday.config.json');
+    const gitignorePath = path.join(tempDir, '.gitignore');
+
+    await runInit({
+      vapiPublicKey: 'public-key',
+      vapiPrivateKey: 'private-key',
+      qdrantUrl: 'https://qdrant.example.com',
+      qdrantKey: 'qdrant-key',
+      qdrantCollection: 'demo-project',
+      assistantModelProvider: 'cerebras',
+      embeddingProvider: 'jina',
+      jinaKey: 'jina-key',
+      configPath,
+      gitignorePath,
+    });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+    expect(config.assistant.model.model).toBe('gpt-oss-120b');
+    expect(config.embedding.model).toBe('jina-code-embeddings-1.5b');
+  });
+
+  test('writes Jina embedding provider settings', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'saturday-init-jina-'));
+    const configPath = path.join(tempDir, '.saturday.config.json');
+    const gitignorePath = path.join(tempDir, '.gitignore');
+
+    await runInit({
+      vapiPublicKey: 'public-key',
+      vapiPrivateKey: 'private-key',
+      qdrantUrl: 'https://qdrant.example.com',
+      qdrantKey: 'qdrant-key',
+      qdrantCollection: 'demo-project',
+      embeddingProvider: 'jina',
+      embeddingModel: 'jina-embeddings-v5-text-small',
+      jinaKey: 'jina-key',
+      configPath,
+      gitignorePath,
+    });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+    expect(config.embedding.provider).toBe('jina');
+    expect(config.embedding.model).toBe('jina-embeddings-v5-text-small');
+    expect(config.embedding.dimensions).toBe(1024);
+    expect(config.jina.apiKey).toBe('jina-key');
+  });
+
+  test('writes project-wide indexing defaults for new configs', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'saturday-init-indexing-'));
+    const configPath = path.join(tempDir, '.saturday.config.json');
+    const gitignorePath = path.join(tempDir, '.gitignore');
+
+    await runInit({
+      vapiPublicKey: 'public-key',
+      vapiPrivateKey: 'private-key',
+      qdrantUrl: 'https://qdrant.example.com',
+      qdrantKey: 'qdrant-key',
+      qdrantCollection: 'demo-project',
+      openaiKey: 'openai-key',
+      configPath,
+      gitignorePath,
+    });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+    expect(config.indexing.include).toEqual(['.']);
+    expect(config.indexing.exclude).toEqual(['node_modules', '.git', 'dist', 'build']);
+  });
+
   test('shows the Saturday banner in interactive mode', async () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });

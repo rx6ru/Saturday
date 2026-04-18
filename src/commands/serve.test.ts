@@ -33,6 +33,12 @@ describe('runServe', () => {
             privateKey: 'private-key',
             assistantId: null,
           },
+          assistant: {
+            model: {
+              provider: 'openai',
+              model: 'gpt-4o',
+            },
+          },
           qdrant: {
             url: 'https://qdrant.example.com',
             apiKey: 'qdrant-key',

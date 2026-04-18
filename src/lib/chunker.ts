@@ -35,6 +35,9 @@ export class FileChunker {
       const end = Math.min(start + this.chunkSize, lines.length);
       const chunkLines = lines.slice(start, end);
       const contentBlock = chunkLines.join('\n');
+      if (contentBlock.trim().length === 0) {
+        continue;
+      }
       const hash = this.sha256(contentBlock);
       const firstLine = chunkLines[0] ?? '';
       const funcName = this.detectFunctionName(firstLine, language) ?? undefined;

@@ -28,6 +28,7 @@ export function initCommand(program: Command) {
     .option('--qdrant-collection <name>', 'Qdrant collection name')
     .option('--openai-key <key>', 'OpenAI API key')
     .option('--gemini-key <key>', 'Gemini API key')
+    .option('--jina-key <key>', 'Jina API key')
     .option('--assistant-model-provider <provider>', 'Vapi assistant model provider', 'openai')
     .option('--assistant-model <model>', 'Vapi assistant model')
     .option('--assistant-model-url <url>', 'OpenAI-compatible endpoint URL for custom-llm')
@@ -63,6 +64,7 @@ export interface InitOptions {
   qdrantCollection?: string;
   openaiKey?: string;
   geminiKey?: string;
+  jinaKey?: string;
   assistantModelProvider?: string;
   assistantModel?: string;
   assistantModelUrl?: string;
@@ -127,15 +129,16 @@ export async function runInit(options: InitOptions): Promise<void> {
     secret: true,
   });
   const collectionName = await resolveTextOption({
-    value: options.qdrantCollection || path.basename(process.cwd()),
+    value: options.qdrantCollection,
     interactive,
     prompt: 'Qdrant collection name',
     placeholder: path.basename(process.cwd()),
   });
   const openaiKey = options.openaiKey || process.env.OPENAI_API_KEY || '';
   const geminiKey = options.geminiKey || process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEYS || '';
+  const jinaKey = options.jinaKey || process.env.JINA_API_KEY || '';
   const assistantModelProvider = await resolveSelectOption({
-    value: options.assistantModelProvider || 'openai',
+    value: options.assistantModelProvider,
     interactive,
     prompt: 'Assistant model provider',
     options: [
@@ -147,7 +150,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     ],
   });
   const assistantModel = await resolveTextOption({
-    value: options.assistantModel || getDefaultAssistantModel(assistantModelProvider),
+    value: options.assistantModel,
     interactive,
     prompt: 'Assistant model',
     placeholder: getDefaultAssistantModel(assistantModelProvider),
@@ -166,16 +169,17 @@ export async function runInit(options: InitOptions): Promise<void> {
       secret: true,
     });
   const embeddingProvider = await resolveSelectOption({
-    value: options.embeddingProvider || 'openai',
-    interactive,
-    prompt: 'Embedding provider',
-    options: [
-      { value: 'openai', label: 'OpenAI' },
-      { value: 'gemini', label: 'Gemini' },
-    ],
-  });
+    value: options.embeddingProvider,
+      interactive,
+      prompt: 'Embedding provider',
+      options: [
+        { value: 'openai', label: 'OpenAI' },
+        { value: 'gemini', label: 'Gemini' },
+        { value: 'jina', label: 'Jina' },
+      ],
+    });
   const embeddingModel = await resolveTextOption({
-    value: options.embeddingModel || getDefaultEmbeddingModel(embeddingProvider),
+    value: options.embeddingModel,
     interactive,
     prompt: 'Embedding model',
     placeholder: getDefaultEmbeddingModel(embeddingProvider),
@@ -205,6 +209,15 @@ export async function runInit(options: InitOptions): Promise<void> {
           secret: true,
         })
       : geminiKey;
+  const resolvedJinaKey =
+    embeddingProvider === 'jina'
+      ? await resolveTextOption({
+          value: jinaKey,
+          interactive,
+          prompt: 'Jina API key',
+          secret: true,
+        })
+      : jinaKey;
 
   const embeddingDimensions = getEmbeddingDimensions(
     embeddingProvider,
@@ -242,8 +255,11 @@ export async function runInit(options: InitOptions): Promise<void> {
     gemini: {
       apiKey: resolvedGeminiKey
     },
+    jina: {
+      apiKey: resolvedJinaKey
+    },
     indexing: {
-      include: ['src', 'lib'],
+      include: ['.'],
       exclude: ['node_modules', '.git', 'dist', 'build'],
       extensions: ['.ts', '.js', '.tsx', '.jsx', '.py', '.md']
     },
@@ -330,6 +346,7 @@ function getDefaultEmbeddingModel(provider: string): string {
   const defaults: Record<string, string> = {
     openai: 'text-embedding-3-small',
     gemini: 'gemini-embedding-001',
+    jina: 'jina-code-embeddings-1.5b',
   };
   return defaults[provider] || 'text-embedding-3-small';
 }
@@ -350,19 +367,24 @@ function getAssistantProviderApiKey(provider: string): string | undefined {
 }
 
 async function resolveTextOption(options: {
-  value: string;
+  value: string | undefined;
   interactive: boolean;
   prompt: string;
   placeholder?: string;
   secret?: boolean;
 }): Promise<string> {
-  if (options.value) return options.value;
-  if (!options.interactive) return '';
+  if (!options.interactive && options.value) return options.value;
+  if (!options.interactive) return options.placeholder || '';
 
   const answer = options.secret
     ? await p.password({ message: options.prompt })
-    : await p.text({ message: options.prompt, placeholder: options.placeholder });
-  return unwrapPromptValue(answer);
+    : await p.text({
+        message: options.prompt,
+        placeholder: options.placeholder,
+        initialValue: options.value || options.placeholder,
+      });
+  const resolved = unwrapPromptValue(answer);
+  return resolved || options.value || options.placeholder || '';
 }
 
 async function resolveOptionalTextOption(options: {
@@ -372,27 +394,33 @@ async function resolveOptionalTextOption(options: {
   placeholder?: string;
   secret?: boolean;
 }): Promise<string> {
-  if (options.value) return options.value;
+  if (!options.interactive && options.value) return options.value;
   if (!options.interactive) return '';
 
   const answer = options.secret
     ? await p.password({ message: options.prompt })
-    : await p.text({ message: options.prompt, placeholder: options.placeholder });
-  return unwrapPromptValue(answer);
+    : await p.text({
+        message: options.prompt,
+        placeholder: options.placeholder,
+        initialValue: options.value || options.placeholder,
+      });
+  const resolved = unwrapPromptValue(answer);
+  return resolved || options.value || options.placeholder || '';
 }
 
 async function resolveSelectOption<T extends string>(options: {
-  value: T;
+  value: T | undefined;
   interactive: boolean;
   prompt: string;
-  options: Array<{ value: T; label: string }>;
+  options: Array<{ value: T; label: string; hint?: string }>;
 }): Promise<T> {
-  if (options.value) return options.value;
+  if (!options.interactive && options.value) return options.value;
   if (!options.interactive) return options.options[0].value;
 
   const answer = await p.select({
     message: options.prompt,
-    options: options.options,
+    options: options.options as any,
+    initialValue: options.value,
   });
   return unwrapPromptValue(answer) as T;
 }

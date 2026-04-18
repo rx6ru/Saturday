@@ -79,6 +79,8 @@ export function createApp(config: Config, dependencies: ServerDependencies = {})
       apiKey:
         config.embedding?.provider === 'gemini'
           ? config.gemini?.apiKey || ''
+          : config.embedding?.provider === 'jina'
+            ? config.jina?.apiKey || ''
           : config.openai?.apiKey || '',
     });
   const syncRunner = dependencies.syncRunner || runSync;

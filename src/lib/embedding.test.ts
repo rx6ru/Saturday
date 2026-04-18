@@ -113,4 +113,137 @@ describe('EmbeddingService', () => {
 
     global.fetch = originalFetch;
   });
+
+  test('embed() calls Jina embeddings API for text retrieval', async () => {
+    const originalFetch = global.fetch;
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [{ index: 0, embedding: [0.1, 0.2, 0.3] }],
+      }),
+    });
+    global.fetch = fetchMock as any;
+
+    const jina = new EmbeddingService({
+      provider: 'jina',
+      apiKey: 'jina-key',
+      model: 'jina-embeddings-v5-text-small',
+      dimensions: 1024,
+    });
+
+    const result = await jina.embed('find auth docs', 'RETRIEVAL_QUERY');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.jina.ai/v1/embeddings',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer jina-key',
+        }),
+      }),
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      model: 'jina-embeddings-v5-text-small',
+      task: 'retrieval.query',
+      normalized: true,
+      embedding_type: 'float',
+      input: ['find auth docs'],
+    });
+    expect(result.embedding).toEqual([0.1, 0.2, 0.3]);
+
+    global.fetch = originalFetch;
+  });
+
+  test('embedBatch() uses Jina code retrieval tasks for code models', async () => {
+    const originalFetch = global.fetch;
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          { index: 0, embedding: [0.1, 0.2] },
+          { index: 1, embedding: [0.3, 0.4] },
+        ],
+      }),
+    });
+    global.fetch = fetchMock as any;
+
+    const jina = new EmbeddingService({
+      provider: 'jina',
+      apiKey: 'jina-key',
+      model: 'jina-code-embeddings-1.5b',
+      dimensions: 1536,
+    });
+
+    const result = await jina.embedBatch(['doc 1', 'doc 2'], 100, 'RETRIEVAL_DOCUMENT');
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      model: 'jina-code-embeddings-1.5b',
+      task: 'nl2code.passage',
+      normalized: true,
+      embedding_type: 'float',
+      input: ['doc 1', 'doc 2'],
+    });
+    expect(result).toEqual([[0.1, 0.2], [0.3, 0.4]]);
+
+    global.fetch = originalFetch;
+  });
+
+  test('embedBatch() splits Jina batches to stay below token-heavy request sizes', async () => {
+    const originalFetch = global.fetch;
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [{ index: 0, embedding: [0.1, 0.2] }],
+      }),
+    });
+    global.fetch = fetchMock as any;
+
+    const jina = new EmbeddingService({
+      provider: 'jina',
+      apiKey: 'jina-key',
+      model: 'jina-embeddings-v5-text-small',
+      dimensions: 1024,
+    });
+
+    await jina.embedBatch([`a`.repeat(50000), `b`.repeat(50000)], 100, 'RETRIEVAL_DOCUMENT');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    global.fetch = originalFetch;
+  });
+
+  test('embedBatch() retries Jina token rate limits', async () => {
+    const originalFetch = global.fetch;
+    const sleepSpy = jest.spyOn(EmbeddingService.prototype as any, 'sleep').mockResolvedValue(undefined);
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        text: async () => '{"code":"RATE_TOKEN_LIMIT_EXCEEDED"}',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ index: 0, embedding: [0.1, 0.2, 0.3] }],
+        }),
+      });
+    global.fetch = fetchMock as any;
+
+    const jina = new EmbeddingService({
+      provider: 'jina',
+      apiKey: 'jina-key',
+      model: 'jina-embeddings-v5-text-small',
+      dimensions: 1024,
+    });
+
+    const result = await jina.embedBatch(['doc'], 100, 'RETRIEVAL_DOCUMENT');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sleepSpy).toHaveBeenCalledWith(65000);
+    expect(result).toEqual([[0.1, 0.2, 0.3]]);
+
+    sleepSpy.mockRestore();
+    global.fetch = originalFetch;
+  });
 });

@@ -78,6 +78,16 @@ describe('FileChunker - RED phase (tests to drive implementation)', () => {
     expect(chunks[0].language).toBe('python');
   });
 
+  test('chunk() skips trailing empty chunks from files ending with a newline', () => {
+    const content = 'export const value = 1;\n';
+    const chunker = new FileChunker(1, 0);
+
+    const chunks = chunker.chunk(content, 'value.ts');
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].content).toBe('export const value = 1;');
+  });
+
   test('detectFunctionName patterns for TS/JS/Python/Markdown', () => {
     const c = new FileChunker();
     // TS/JS pattern

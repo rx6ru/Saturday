@@ -28,6 +28,7 @@ describe('Config module (TDD)', () => {
     const cfg: Config = {
       vapi: { publicKey: 'pub', privateKey: 'priv' },
       qdrant: { url: 'http://localhost:6333', apiKey: 'q_api', collection: 'col' },
+      assistant: { model: { provider: 'openai', model: 'gpt-4o' } },
       openai: { apiKey: 'openai-key' },
       embedding: { provider: 'openai', model: 'text-embedding-3-small', dimensions: 1536 },
       indexing: { include: ['src'], exclude: ['node_modules'], extensions: ['.ts'] },
@@ -66,6 +67,7 @@ describe('Config module (TDD)', () => {
     const cfg: Config = {
       vapi: { publicKey: 'pub', privateKey: 'priv' },
       qdrant: { url: 'http://example', apiKey: 'k', collection: 'c' },
+      assistant: { model: { provider: 'openai', model: 'gpt-4o' } },
       openai: { apiKey: 'openai' },
       embedding: { provider: 'openai', model: 'text-embedding-3-small', dimensions: 1536 },
       indexing: { include: ['src'], exclude: [], extensions: ['.ts'] },
@@ -81,6 +83,7 @@ describe('Config module (TDD)', () => {
     complete.vapi = { publicKey: 'p', privateKey: 's' };
     complete.qdrant = { url: 'u', apiKey: 'a', collection: 'col' };
     complete.openai = { apiKey: 'oi' };
+    complete.assistant = { model: { provider: 'openai', model: 'gpt-4o' } };
     const errors = validateConfig(complete);
     expect(errors.length).toBe(0);
 

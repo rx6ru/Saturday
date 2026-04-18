@@ -85,7 +85,10 @@ export class QdrantCodeIndex {
     return map;
   }
 
-  async upsertBatch(points: Array<{ id: string; vector: number[]; payload: CodeChunkPayload }>): Promise<void> {
+  async upsertBatch(
+    points: Array<{ id: string; vector: number[]; payload: CodeChunkPayload }>,
+    onProgress?: (progress: { completed: number; total: number }) => void,
+  ): Promise<void> {
     for (let i = 0; i < points.length; i += this.batchSize) {
       const batch = points.slice(i, i + this.batchSize);
       await this.client.upsert(this.collection, {
@@ -95,6 +98,7 @@ export class QdrantCodeIndex {
           payload: p.payload
         }))
       });
+      onProgress?.({ completed: Math.min(i + batch.length, points.length), total: points.length });
     }
   }
 

@@ -7,11 +7,16 @@ export interface EmbeddingResult {
   usage: { prompt_tokens: number; total_tokens: number };
 }
 
+export interface EmbeddingProgress {
+  completed: number;
+  total: number;
+}
+
 export interface EmbeddingServiceConfig extends EmbeddingConfig {
   apiKey: string;
 }
 
-type EmbeddingProvider = 'openai' | 'gemini';
+type EmbeddingProvider = 'openai' | 'gemini' | 'jina';
 
 export class EmbeddingService {
   private apiKey: string;
@@ -42,6 +47,13 @@ export class EmbeddingService {
     if (this.provider === 'gemini') {
       return this.embedGemini(text, taskType);
     }
+    if (this.provider === 'jina') {
+      return this.embedJina([text], taskType).then((embeddings) => ({
+        embedding: embeddings[0],
+        model: this.model,
+        usage: { prompt_tokens: 0, total_tokens: 0 },
+      }));
+    }
 
     const response = await this.openai!.embeddings.create({
       model: this.model,
@@ -63,12 +75,22 @@ export class EmbeddingService {
     texts: string[],
     batchSize: number = 100,
     taskType: string = 'RETRIEVAL_DOCUMENT',
+    onProgress?: (progress: EmbeddingProgress) => void,
   ): Promise<number[][]> {
     if (this.provider === 'gemini') {
       const embeddings: number[][] = [];
       for (const text of texts) {
         const result = await this.embedGemini(text, taskType);
         embeddings.push(result.embedding);
+        onProgress?.({ completed: embeddings.length, total: texts.length });
+      }
+      return embeddings;
+    }
+    if (this.provider === 'jina') {
+      const embeddings: number[][] = [];
+      for (const batch of this.buildJinaBatches(texts, batchSize)) {
+        embeddings.push(...(await this.embedJina(batch, taskType)));
+        onProgress?.({ completed: embeddings.length, total: texts.length });
       }
       return embeddings;
     }
@@ -85,6 +107,7 @@ export class EmbeddingService {
       embeddings.push(
         ...response.data.sort((a: { index: number }, b: { index: number }) => a.index - b.index).map((d: { embedding: number[] }) => d.embedding)
       );
+      onProgress?.({ completed: embeddings.length, total: texts.length });
     }
 
     return embeddings;
@@ -133,6 +156,86 @@ export class EmbeddingService {
         total_tokens: 0,
       },
     };
+  }
+
+  private async embedJina(texts: string[], taskType: string): Promise<number[][]> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await fetch('https://api.jina.ai/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.model,
+          task: this.mapJinaTask(taskType),
+          normalized: true,
+          embedding_type: 'float',
+          input: texts,
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        if (response.status === 429 && /RATE_TOKEN_LIMIT_EXCEEDED/.test(body) && attempt < 2) {
+          await this.sleep(65000);
+          continue;
+        }
+        throw new Error(`Jina embedding failed: ${response.status} ${body}`);
+      }
+
+      const payload: any = await response.json();
+      if (!Array.isArray(payload.data)) {
+        throw new Error('Jina embedding response did not include embedding data');
+      }
+
+      return payload.data
+        .sort((a: { index: number }, b: { index: number }) => a.index - b.index)
+        .map((item: { embedding: number[] }) => item.embedding);
+    }
+    throw new Error('Jina embedding failed after retries');
+  }
+
+  private mapJinaTask(taskType: string): string {
+    if (this.model.startsWith('jina-code-embeddings')) {
+      return taskType === 'RETRIEVAL_DOCUMENT' ? 'nl2code.passage' : 'nl2code.query';
+    }
+
+    return taskType === 'RETRIEVAL_DOCUMENT' ? 'retrieval.passage' : 'retrieval.query';
+  }
+
+  private buildJinaBatches(texts: string[], batchSize: number): string[][] {
+    const maxItems = Math.min(batchSize, 12);
+    const maxEstimatedTokens = 6000;
+    const batches: string[][] = [];
+    let currentBatch: string[] = [];
+    let currentEstimatedTokens = 0;
+
+    for (const text of texts) {
+      const estimatedTokens = Math.max(1, Math.ceil(text.length / 3));
+      const wouldOverflow =
+        currentBatch.length >= maxItems ||
+        currentEstimatedTokens + estimatedTokens > maxEstimatedTokens;
+
+      if (currentBatch.length > 0 && wouldOverflow) {
+        batches.push(currentBatch);
+        currentBatch = [];
+        currentEstimatedTokens = 0;
+      }
+
+      currentBatch.push(text);
+      currentEstimatedTokens += estimatedTokens;
+    }
+
+    if (currentBatch.length > 0) {
+      batches.push(currentBatch);
+    }
+
+    return batches;
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private normalize(vector: number[]): number[] {

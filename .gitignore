@@ -12,3 +12,5 @@ dist/
 .devdocs/
 .omx/
 .codex
+
+.testProjs

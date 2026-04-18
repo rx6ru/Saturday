@@ -42,7 +42,7 @@ Requirements:
 - `ngrok` on `PATH`
 - Vapi public/private keys
 - Qdrant URL/API key
-- OpenAI or Gemini key for embeddings
+- OpenAI, Gemini, or Jina key for embeddings
 
 ## Quick Start
 
@@ -89,7 +89,7 @@ Default indexing:
 
 ```json
 {
-  "include": ["src", "lib"],
+  "include": ["."],
   "exclude": ["node_modules", ".git", "dist", "build"],
   "extensions": [".ts", ".js", ".tsx", ".jsx", ".py", ".md"]
 }
@@ -168,6 +168,31 @@ satur-day init \
 
 Gemini supports `768`, `1536`, and `3072` dimensions. Saturday normalizes reduced
 dimension vectors before writing them to Qdrant.
+
+Jina text embeddings:
+
+```bash
+satur-day init \
+  --embedding-provider jina \
+  --embedding-model jina-embeddings-v5-text-small \
+  --jina-key "$JINA_API_KEY"
+```
+
+Jina code embeddings:
+
+```bash
+satur-day init \
+  --embedding-provider jina \
+  --embedding-model jina-code-embeddings-1.5b \
+  --jina-key "$JINA_API_KEY"
+```
+
+Saturday maps retrieval tasks automatically:
+
+- text models: `retrieval.query` / `retrieval.passage`
+- code models: `nl2code.query` / `nl2code.passage`
+
+For codebase indexing, Saturday defaults Jina to `jina-code-embeddings-1.5b`.
 
 ## What Gets Published
 

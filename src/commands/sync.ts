@@ -67,6 +67,8 @@ export async function runSync(options: SyncOptions): Promise<void> {
   const embeddingApiKey =
     embeddingConfig.provider === 'gemini'
       ? config.gemini?.apiKey || ''
+      : embeddingConfig.provider === 'jina'
+        ? config.jina?.apiKey || ''
       : config.openai?.apiKey || '';
   const embedding = new EmbeddingService({
     ...embeddingConfig,
@@ -74,21 +76,23 @@ export async function runSync(options: SyncOptions): Promise<void> {
   });
   const chunker = new FileChunker(50, 10);
 
-  const indexing = config.indexing || { include: ['src'], exclude: [], extensions: ['.ts', '.js'] };
+  const indexing = config.indexing || { include: ['.'], exclude: [], extensions: ['.ts', '.js'] };
 
   if (!interactive) console.log('Scanning files...');
-  const patterns = indexing.include.map((dir: string) => `${dir}/**/*`);
-  const files = await fg(patterns, {
-    cwd: process.cwd(),
-    ignore: indexing.exclude,
-    absolute: true,
-    onlyFiles: true
-  });
+  let filteredFiles = await collectFiles(indexing);
 
-  const filteredFiles = files.filter((file: string) => {
-    const ext = path.extname(file);
-    return indexing.extensions.includes(ext);
-  });
+  // Legacy configs used src/lib defaults, which miss projects with files at repo root
+  // or under other folders. Fall back to a root-wide recursive scan for that case.
+  if (filteredFiles.length === 0 && isLegacyDefaultInclude(indexing.include)) {
+    filteredFiles = await collectFiles({
+      ...indexing,
+      include: ['.'],
+    });
+  }
+
+  if (filteredFiles.length === 0) {
+    throw new Error('No supported files found. Update `indexing.include` or `indexing.extensions` in .saturday.config.json.');
+  }
 
   if (interactive) {
     p.log.step(`Found ${filteredFiles.length} files to process`);
@@ -96,14 +100,21 @@ export async function runSync(options: SyncOptions): Promise<void> {
     console.log(`Found ${filteredFiles.length} files to process`);
   }
 
-  if (!interactive) console.log('Chunking files...');
+  const chunkingSpinner = interactive ? p.spinner() : null;
+  if (chunkingSpinner) chunkingSpinner.start(`Chunking files (0/${filteredFiles.length})`);
+  else console.log('Chunking files...');
   const allChunks: Chunk[] = [];
 
-  for (const file of filteredFiles) {
+  for (let index = 0; index < filteredFiles.length; index++) {
+    const file = filteredFiles[index];
     const content = fs.readFileSync(file, 'utf-8');
     const chunks = chunker.chunk(content, path.relative(process.cwd(), file));
     allChunks.push(...chunks);
+    if (chunkingSpinner && ((index + 1) % 25 === 0 || index + 1 === filteredFiles.length)) {
+      chunkingSpinner.message(`Chunking files (${index + 1}/${filteredFiles.length})`);
+    }
   }
+  if (chunkingSpinner) chunkingSpinner.stop(`Created ${allChunks.length} chunks`);
 
   if (interactive) {
     p.log.step(`Created ${allChunks.length} chunks`);
@@ -184,6 +195,11 @@ export async function runSync(options: SyncOptions): Promise<void> {
       toUpsert.map((c: Chunk) => c.content),
       100,
       'RETRIEVAL_DOCUMENT',
+      spinner
+        ? ({ completed, total }) => {
+            spinner.message(`Generating embeddings (${completed}/${total})`);
+          }
+        : undefined,
     );
 
     if (spinner) spinner.message('Uploading to Qdrant');
@@ -211,7 +227,14 @@ export async function runSync(options: SyncOptions): Promise<void> {
         } as CodeChunkPayload
       };
     });
-    await qdrant.upsertBatch(points);
+    await qdrant.upsertBatch(
+      points,
+      spinner
+        ? ({ completed, total }) => {
+            spinner.message(`Uploading to Qdrant (${completed}/${total})`);
+          }
+        : undefined,
+    );
     if (spinner) spinner.stop('Upload complete');
   }
 
@@ -224,4 +247,25 @@ export async function runSync(options: SyncOptions): Promise<void> {
     console.log(`${allChunks.length} total chunks indexed`);
     console.log(`${newChunks.length} new, ${updatedChunks.length} updated, ${unchangedCount.value} unchanged`);
   }
+}
+
+async function collectFiles(indexing: { include: string[]; exclude: string[]; extensions: string[] }): Promise<string[]> {
+  const patterns = indexing.include.map((dir: string) => (dir === '.' ? '**/*' : `${dir}/**/*`));
+  const files = await fg(patterns, {
+    cwd: process.cwd(),
+    ignore: indexing.exclude,
+    absolute: true,
+    onlyFiles: true,
+  });
+
+  return files.filter((file: string) => {
+    const ext = path.extname(file);
+    return indexing.extensions.includes(ext);
+  });
+}
+
+function isLegacyDefaultInclude(include: string[]): boolean {
+  if (include.length !== 2) return false;
+  const normalized = [...include].sort();
+  return normalized[0] === 'lib' && normalized[1] === 'src';
 }

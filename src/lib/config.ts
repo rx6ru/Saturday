@@ -21,6 +21,10 @@ export interface GeminiConfig {
   apiKey: string;
 }
 
+export interface JinaConfig {
+  apiKey: string;
+}
+
 export interface EmbeddingConfig {
   provider: string;
   model: string;
@@ -54,6 +58,7 @@ export interface Config {
   qdrant: QdrantConfig;
   openai?: OpenAiConfig;
   gemini?: GeminiConfig;
+  jina?: JinaConfig;
   assistant?: AssistantConfig;
   embedding?: EmbeddingConfig;
   indexing?: IndexingConfig;
@@ -63,6 +68,15 @@ export interface Config {
 export function getEmbeddingDimensions(provider: string, model: string, explicit?: number): number {
   if (explicit) return explicit;
   if (provider === 'gemini') return 3072;
+  if (provider === 'jina') {
+    const jinaDimensions: Record<string, number> = {
+      'jina-embeddings-v5-text-small': 1024,
+      'jina-embeddings-v5-text-nano': 768,
+      'jina-code-embeddings-1.5b': 1536,
+      'jina-code-embeddings-0.5b': 1024,
+    };
+    return jinaDimensions[model] || 1024;
+  }
   const dimensions: Record<string, number> = {
     'text-embedding-3-small': 1536,
     'text-embedding-3-large': 3072,
@@ -89,6 +103,9 @@ export function getDefaultConfig(): Config {
     gemini: {
       apiKey: ''
     },
+    jina: {
+      apiKey: ''
+    },
     assistant: {
       model: {
         provider: 'openai',
@@ -101,7 +118,7 @@ export function getDefaultConfig(): Config {
       dimensions: 1536
     },
     indexing: {
-      include: ['src', 'lib'],
+      include: ['.'],
       exclude: ['node_modules', '.git', 'dist', 'build'],
       extensions: ['.ts', '.js', '.tsx', '.jsx', '.py', '.md']
     },
@@ -119,12 +136,20 @@ export function validateConfig(cfg: Config): string[] {
   if (!cfg?.qdrant?.url) errors.push('qdrant.url is required');
   if (!cfg?.qdrant?.apiKey) errors.push('qdrant.apiKey is required');
   if (!cfg?.qdrant?.collection) errors.push('qdrant.collection is required');
+  if (!cfg?.assistant?.model?.provider) errors.push('assistant.model.provider is required');
+  if (!cfg?.assistant?.model?.model) errors.push('assistant.model.model is required');
+  if (!cfg?.embedding?.provider) errors.push('embedding.provider is required');
+  if (!cfg?.embedding?.model) errors.push('embedding.model is required');
+  if (!cfg?.embedding?.dimensions) errors.push('embedding.dimensions is required');
   const embeddingProvider = cfg?.embedding?.provider || 'openai';
   if (embeddingProvider === 'openai' && !cfg?.openai?.apiKey) {
     errors.push('openai.apiKey is required');
   }
   if (embeddingProvider === 'gemini' && !cfg?.gemini?.apiKey) {
     errors.push('gemini.apiKey is required');
+  }
+  if (embeddingProvider === 'jina' && !cfg?.jina?.apiKey) {
+    errors.push('jina.apiKey is required');
   }
   if (cfg?.assistant?.model?.provider === 'custom-llm' && !cfg.assistant.model.url) {
     errors.push('assistant.model.url is required for custom-llm');
