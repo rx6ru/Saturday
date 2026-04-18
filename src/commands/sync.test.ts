@@ -110,4 +110,41 @@ describe('runSync', () => {
     expect(embedBatch).not.toHaveBeenCalled();
     expect(upsertBatch).not.toHaveBeenCalled();
   });
+
+  test('skips markdown files when using the Jina code embedding model', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'saturday-sync-jina-code-'));
+    const configPath = path.join(tempDir, '.saturday.config.json');
+
+    fs.writeFileSync(path.join(tempDir, 'README.md'), '# Docs\n', 'utf-8');
+    fs.writeFileSync(path.join(tempDir, 'index.ts'), 'export const answer = 42;\n', 'utf-8');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          vapi: { publicKey: 'pub', privateKey: 'priv' },
+          qdrant: { url: 'https://qdrant.example.com', apiKey: 'qdrant-key', collection: 'demo' },
+          assistant: { model: { provider: 'openai', model: 'gpt-4o' } },
+          jina: { apiKey: 'jina-key' },
+          embedding: { provider: 'jina', model: 'jina-code-embeddings-1.5b', dimensions: 1536 },
+          indexing: {
+            include: ['.'],
+            exclude: ['node_modules', '.git', 'dist', 'build'],
+            extensions: ['.ts', '.js', '.tsx', '.jsx', '.py', '.md'],
+          },
+          server: { port: 3000, host: '127.0.0.1' },
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await runSync({});
+
+    expect(embedBatch).toHaveBeenCalledTimes(1);
+    expect(embedBatch.mock.calls[0][0]).toHaveLength(1);
+    expect(upsertBatch.mock.calls[0][0][0].payload.filePath).toBe('index.ts');
+  });
 });

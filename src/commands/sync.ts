@@ -75,11 +75,11 @@ export async function runSync(options: SyncOptions): Promise<void> {
     apiKey: embeddingApiKey,
   });
   const chunker = new FileChunker(50, 10);
-
   const indexing = config.indexing || { include: ['.'], exclude: [], extensions: ['.ts', '.js'] };
+  const effectiveExtensions = getEffectiveExtensions(indexing.extensions, embeddingConfig.provider, embeddingConfig.model);
 
   if (!interactive) console.log('Scanning files...');
-  let filteredFiles = await collectFiles(indexing);
+  let filteredFiles = await collectFiles({ ...indexing, extensions: effectiveExtensions });
 
   // Legacy configs used src/lib defaults, which miss projects with files at repo root
   // or under other folders. Fall back to a root-wide recursive scan for that case.
@@ -87,6 +87,7 @@ export async function runSync(options: SyncOptions): Promise<void> {
     filteredFiles = await collectFiles({
       ...indexing,
       include: ['.'],
+      extensions: effectiveExtensions,
     });
   }
 
@@ -116,9 +117,7 @@ export async function runSync(options: SyncOptions): Promise<void> {
   }
   if (chunkingSpinner) chunkingSpinner.stop(`Created ${allChunks.length} chunks`);
 
-  if (interactive) {
-    p.log.step(`Created ${allChunks.length} chunks`);
-  } else {
+  if (!interactive) {
     console.log(`Created ${allChunks.length} chunks`);
   }
 
@@ -268,4 +267,11 @@ function isLegacyDefaultInclude(include: string[]): boolean {
   if (include.length !== 2) return false;
   const normalized = [...include].sort();
   return normalized[0] === 'lib' && normalized[1] === 'src';
+}
+
+function getEffectiveExtensions(extensions: string[], provider: string, model: string): string[] {
+  if (provider === 'jina' && model.startsWith('jina-code-embeddings')) {
+    return extensions.filter((ext) => ext !== '.md');
+  }
+  return extensions;
 }

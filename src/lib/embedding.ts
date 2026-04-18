@@ -160,23 +160,20 @@ export class EmbeddingService {
 
   private async embedJina(texts: string[], taskType: string): Promise<number[][]> {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const response = await fetch('https://api.jina.ai/v1/embeddings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.model,
-          task: this.mapJinaTask(taskType),
-          normalized: true,
-          embedding_type: 'float',
-          input: texts,
-        }),
-      });
+      const response = await this.requestJinaEmbeddings(texts, taskType);
 
       if (!response.ok) {
         const body = await response.text();
+        if (response.status === 400 && /Failed to encode text/.test(body)) {
+          if (texts.length > 1) {
+            const embeddings: number[][] = [];
+            for (const text of texts) {
+              embeddings.push(await this.embedSingleJinaText(text, taskType));
+            }
+            return embeddings;
+          }
+          return [await this.embedSingleJinaText(texts[0], taskType)];
+        }
         if (response.status === 429 && /RATE_TOKEN_LIMIT_EXCEEDED/.test(body) && attempt < 2) {
           await this.sleep(65000);
           continue;
@@ -194,6 +191,51 @@ export class EmbeddingService {
         .map((item: { embedding: number[] }) => item.embedding);
     }
     throw new Error('Jina embedding failed after retries');
+  }
+
+  private async embedSingleJinaText(text: string, taskType: string): Promise<number[]> {
+    const response = await this.requestJinaEmbeddings([text], taskType);
+    if (response.ok) {
+      const payload: any = await response.json();
+      return payload.data[0].embedding;
+    }
+
+    const body = await response.text();
+    if (response.status === 400 && /Failed to encode text/.test(body)) {
+      const parts = this.splitTextForJinaFallback(text);
+      if (!parts) {
+        throw new Error(`Jina embedding failed: ${response.status} ${body}`);
+      }
+
+      const partEmbeddings = await Promise.all(parts.map((part) => this.embedSingleJinaText(part.text, taskType)));
+      return this.averageEmbeddings(
+        partEmbeddings.map((embedding, index) => ({ embedding, weight: parts[index].weight })),
+      );
+    }
+
+    if (response.status === 429 && /RATE_TOKEN_LIMIT_EXCEEDED/.test(body)) {
+      await this.sleep(65000);
+      return this.embedSingleJinaText(text, taskType);
+    }
+
+    throw new Error(`Jina embedding failed: ${response.status} ${body}`);
+  }
+
+  private async requestJinaEmbeddings(texts: string[], taskType: string): Promise<Response> {
+    return fetch('https://api.jina.ai/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.model,
+        task: this.mapJinaTask(taskType),
+        normalized: true,
+        embedding_type: 'float',
+        input: texts,
+      }),
+    });
   }
 
   private mapJinaTask(taskType: string): string {
@@ -232,6 +274,48 @@ export class EmbeddingService {
     }
 
     return batches;
+  }
+
+  private splitTextForJinaFallback(text: string): Array<{ text: string; weight: number }> | null {
+    const lines = text.split('\n');
+    if (lines.length > 1) {
+      const midpoint = Math.floor(lines.length / 2);
+      const left = lines.slice(0, midpoint).join('\n').trim();
+      const right = lines.slice(midpoint).join('\n').trim();
+      if (left && right) {
+        return [
+          { text: left, weight: left.length },
+          { text: right, weight: right.length },
+        ];
+      }
+    }
+
+    if (text.length > 400) {
+      const midpoint = Math.floor(text.length / 2);
+      const left = text.slice(0, midpoint).trim();
+      const right = text.slice(midpoint).trim();
+      if (left && right) {
+        return [
+          { text: left, weight: left.length },
+          { text: right, weight: right.length },
+        ];
+      }
+    }
+
+    return null;
+  }
+
+  private averageEmbeddings(parts: Array<{ embedding: number[]; weight: number }>): number[] {
+    const totalWeight = parts.reduce((sum, part) => sum + part.weight, 0) || 1;
+    const merged = new Array(parts[0].embedding.length).fill(0);
+
+    for (const part of parts) {
+      for (let index = 0; index < part.embedding.length; index++) {
+        merged[index] += part.embedding[index] * (part.weight / totalWeight);
+      }
+    }
+
+    return this.normalize(merged);
   }
 
   private async sleep(ms: number): Promise<void> {

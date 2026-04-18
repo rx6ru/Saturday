@@ -261,7 +261,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     indexing: {
       include: ['.'],
       exclude: ['node_modules', '.git', 'dist', 'build'],
-      extensions: ['.ts', '.js', '.tsx', '.jsx', '.py', '.md']
+      extensions: getDefaultIndexingExtensions(embeddingProvider, embeddingModel)
     },
     server: {
       port: 3000,
@@ -349,6 +349,13 @@ function getDefaultEmbeddingModel(provider: string): string {
     jina: 'jina-code-embeddings-1.5b',
   };
   return defaults[provider] || 'text-embedding-3-small';
+}
+
+function getDefaultIndexingExtensions(provider: string, model: string): string[] {
+  if (provider === 'jina' && model.startsWith('jina-code-embeddings')) {
+    return ['.ts', '.js', '.tsx', '.jsx', '.py'];
+  }
+  return ['.ts', '.js', '.tsx', '.jsx', '.py', '.md'];
 }
 
 function getAssistantProviderApiKey(provider: string): string | undefined {

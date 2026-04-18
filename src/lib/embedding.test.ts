@@ -246,4 +246,48 @@ describe('EmbeddingService', () => {
     sleepSpy.mockRestore();
     global.fetch = originalFetch;
   });
+
+  test('embedBatch() falls back to split-and-average when Jina cannot encode a chunk', async () => {
+    const originalFetch = global.fetch;
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: async () => '{"detail":{"message":"Failed to encode text"}}',
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: async () => '{"detail":{"message":"Failed to encode text"}}',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ index: 0, embedding: [1, 0] }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ index: 0, embedding: [0, 1] }],
+        }),
+      });
+    global.fetch = fetchMock as any;
+
+    const jina = new EmbeddingService({
+      provider: 'jina',
+      apiKey: 'jina-key',
+      model: 'jina-code-embeddings-1.5b',
+      dimensions: 1536,
+    });
+
+    const result = await jina.embedBatch(['line 1\nline 2\nline 3\nline 4'], 100, 'RETRIEVAL_DOCUMENT');
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(result[0][0]).toBeCloseTo(0.707106, 5);
+    expect(result[0][1]).toBeCloseTo(0.707106, 5);
+
+    global.fetch = originalFetch;
+  });
 });
