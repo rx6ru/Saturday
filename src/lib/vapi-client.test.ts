@@ -7,6 +7,9 @@ jest.mock('@vapi-ai/server-sdk', () => {
       create: jest.fn(),
       delete: jest.fn()
     },
+    phoneNumbers: {
+      create: jest.fn(),
+    },
     assistants: {
       create: jest.fn(),
       get: jest.fn(),
@@ -35,6 +38,7 @@ describe('VapiService (TDD)', () => {
     const result = await service.createSearchTool('https://example.com/webhook');
 
     expect(mockClient.tools.create).toHaveBeenCalledTimes(1);
+    expect(mockClient.tools.create.mock.calls[0][0].server.timeoutSeconds).toBe(10);
     expect(result).toBe('tool-123');
   });
 
@@ -68,10 +72,34 @@ describe('VapiService (TDD)', () => {
     const payload = mockClient.assistants.create.mock.calls[0][0];
     expect(payload.model.provider).toBe('groq');
     expect(payload.model.model).toBe('llama-3.3-70b-versatile');
+    expect(payload.model.url).toBeUndefined();
     expect(payload.credentials).toEqual([
       {
         provider: 'groq',
         apiKey: 'groq-key',
+      },
+    ]);
+  });
+
+  test('createAssistant() maps cerebras to custom-llm with the Cerebras endpoint', async () => {
+    mockClient.assistants.create.mockResolvedValue({ id: 'assistant-1' });
+
+    await service.createAssistant({
+      name: 'Saturday',
+      modelProvider: 'cerebras',
+      model: 'gpt-oss-120b',
+      providerApiKey: 'cerebras-key',
+      toolId: 'tool-1',
+    });
+
+    const payload = mockClient.assistants.create.mock.calls[0][0];
+    expect(payload.model.provider).toBe('custom-llm');
+    expect(payload.model.url).toBe('https://api.cerebras.ai/v1');
+    expect(payload.model.model).toBe('gpt-oss-120b');
+    expect(payload.credentials).toEqual([
+      {
+        provider: 'custom-llm',
+        apiKey: 'cerebras-key',
       },
     ]);
   });
@@ -126,5 +154,31 @@ describe('VapiService (TDD)', () => {
 
     expect(mockClient.tools.delete).toHaveBeenCalledTimes(1);
     expect(mockClient.tools.delete).toHaveBeenCalledWith('tool-123');
+  });
+
+  test('createPhoneNumber() creates a Vapi number and returns the callable address', async () => {
+    mockClient.phoneNumbers.create.mockResolvedValue({
+      id: 'phone-1',
+      number: '+14155550123',
+      sipUri: 'sip:demo@vapi.ai',
+    });
+
+    const result = await service.createPhoneNumber({
+      areaCode: '415',
+      assistantId: 'assistant-1',
+      name: 'Saturday inbound',
+    });
+
+    expect(mockClient.phoneNumbers.create).toHaveBeenCalledWith({
+      provider: 'vapi',
+      numberDesiredAreaCode: '415',
+      name: 'Saturday inbound',
+      assistantId: 'assistant-1',
+    });
+    expect(result).toEqual({
+      id: 'phone-1',
+      number: '+14155550123',
+      sipUri: 'sip:demo@vapi.ai',
+    });
   });
 });

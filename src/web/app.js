@@ -16,10 +16,16 @@ async function init() {
       return;
     }
 
-    vapi = new Vapi(config.vapiPublicKey);
+    if (!window.Vapi) {
+      showError('Vapi Web SDK failed to load.');
+      return;
+    }
+
+    vapi = new window.Vapi(config.vapiPublicKey);
     setupVapiEvents();
     setupUIEvents();
     await fetchSyncStatus();
+    setSessionState('Ready');
   } catch (error) {
     showError('Initialization failed: ' + error.message);
   }

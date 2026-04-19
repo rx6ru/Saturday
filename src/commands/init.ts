@@ -29,6 +29,7 @@ export function initCommand(program: Command) {
     .option('--openai-key <key>', 'OpenAI API key')
     .option('--gemini-key <key>', 'Gemini API key')
     .option('--jina-key <key>', 'Jina API key')
+    .option('--ngrok-authtoken <token>', 'ngrok auth token')
     .option('--assistant-model-provider <provider>', 'Vapi assistant model provider', 'openai')
     .option('--assistant-model <model>', 'Vapi assistant model')
     .option('--assistant-model-url <url>', 'OpenAI-compatible endpoint URL for custom-llm')
@@ -65,6 +66,7 @@ export interface InitOptions {
   openaiKey?: string;
   geminiKey?: string;
   jinaKey?: string;
+  ngrokAuthtoken?: string;
   assistantModelProvider?: string;
   assistantModel?: string;
   assistantModelUrl?: string;
@@ -137,6 +139,7 @@ export async function runInit(options: InitOptions): Promise<void> {
   const openaiKey = options.openaiKey || process.env.OPENAI_API_KEY || '';
   const geminiKey = options.geminiKey || process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEYS || '';
   const jinaKey = options.jinaKey || process.env.JINA_API_KEY || '';
+  const ngrokAuthtoken = options.ngrokAuthtoken || process.env.NGROK_AUTHTOKEN || '';
   const assistantModelProvider = await resolveSelectOption({
     value: options.assistantModelProvider,
     interactive,
@@ -218,6 +221,12 @@ export async function runInit(options: InitOptions): Promise<void> {
           secret: true,
         })
       : jinaKey;
+  const resolvedNgrokAuthtoken = await resolveOptionalTextOption({
+    value: ngrokAuthtoken,
+    interactive,
+    prompt: 'ngrok auth token (optional)',
+    secret: true,
+  });
 
   const embeddingDimensions = getEmbeddingDimensions(
     embeddingProvider,
@@ -229,7 +238,10 @@ export async function runInit(options: InitOptions): Promise<void> {
     vapi: {
       publicKey: vapiPublicKey,
       privateKey: vapiPrivateKey,
-      assistantId: null
+      assistantId: null,
+      phoneNumberId: null,
+      phoneNumber: null,
+      sipUri: null,
     },
     assistant: {
       model: {
@@ -257,6 +269,9 @@ export async function runInit(options: InitOptions): Promise<void> {
     },
     jina: {
       apiKey: resolvedJinaKey
+    },
+    ngrok: {
+      authtoken: resolvedNgrokAuthtoken
     },
     indexing: {
       include: ['.'],
@@ -336,8 +351,8 @@ function getDefaultAssistantModel(provider: string): string {
 
 function getDefaultAssistantModelUrl(provider: string): string | undefined {
   const urls: Record<string, string> = {
-    groq: 'https://api.groq.com/openai/v1',
     cerebras: 'https://api.cerebras.ai/v1',
+    'custom-llm': 'https://api.cerebras.ai/v1',
   };
   return urls[provider];
 }

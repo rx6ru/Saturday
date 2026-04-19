@@ -142,6 +142,28 @@ describe('runInit', () => {
     expect(config.jina.apiKey).toBe('jina-key');
   });
 
+  test('writes ngrok authtoken when provided', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'saturday-init-ngrok-'));
+    const configPath = path.join(tempDir, '.saturday.config.json');
+    const gitignorePath = path.join(tempDir, '.gitignore');
+
+    await runInit({
+      vapiPublicKey: 'public-key',
+      vapiPrivateKey: 'private-key',
+      qdrantUrl: 'https://qdrant.example.com',
+      qdrantKey: 'qdrant-key',
+      qdrantCollection: 'demo-project',
+      openaiKey: 'openai-key',
+      ngrokAuthtoken: 'ngrok-token',
+      configPath,
+      gitignorePath,
+    });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+    expect(config.ngrok.authtoken).toBe('ngrok-token');
+  });
+
   test('writes project-wide indexing defaults for new configs', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'saturday-init-indexing-'));
     const configPath = path.join(tempDir, '.saturday.config.json');

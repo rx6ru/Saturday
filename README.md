@@ -39,7 +39,7 @@ After that, run `satur-day ...` from anywhere on the same machine.
 Requirements:
 
 - Node.js 18+
-- `ngrok` on `PATH`
+- `ngrok` on `PATH`, or an ngrok auth token for the built-in SDK fallback
 - Vapi public/private keys
 - Qdrant URL/API key
 - OpenAI, Gemini, or Jina key for embeddings
@@ -65,6 +65,10 @@ Then open the URL printed by `satur-day serve`.
 
 If you run `satur-day init` in a real TTY, Saturday walks you through setup with
 Clack prompts instead of forcing every option on the command line.
+
+If the `ngrok` binary is not installed, `satur-day serve` falls back to the
+official ngrok JavaScript SDK. For that path, set `NGROK_AUTHTOKEN` or store it
+in Saturday config.
 
 ## Commands
 

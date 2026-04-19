@@ -5,6 +5,9 @@ export interface VapiConfig {
   publicKey: string;
   privateKey: string;
   assistantId?: string | null;
+  phoneNumberId?: string | null;
+  phoneNumber?: string | null;
+  sipUri?: string | null;
 }
 
 export interface QdrantConfig {
@@ -23,6 +26,10 @@ export interface GeminiConfig {
 
 export interface JinaConfig {
   apiKey: string;
+}
+
+export interface NgrokConfig {
+  authtoken?: string;
 }
 
 export interface EmbeddingConfig {
@@ -59,6 +66,7 @@ export interface Config {
   openai?: OpenAiConfig;
   gemini?: GeminiConfig;
   jina?: JinaConfig;
+  ngrok?: NgrokConfig;
   assistant?: AssistantConfig;
   embedding?: EmbeddingConfig;
   indexing?: IndexingConfig;
@@ -90,7 +98,10 @@ export function getDefaultConfig(): Config {
     vapi: {
       publicKey: '',
       privateKey: '',
-      assistantId: null
+      assistantId: null,
+      phoneNumberId: null,
+      phoneNumber: null,
+      sipUri: null,
     },
     qdrant: {
       url: '',
@@ -105,6 +116,9 @@ export function getDefaultConfig(): Config {
     },
     jina: {
       apiKey: ''
+    },
+    ngrok: {
+      authtoken: ''
     },
     assistant: {
       model: {
