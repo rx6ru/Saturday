@@ -1,4 +1,17 @@
 #!/usr/bin/env node
+const originalEmitWarning = process.emitWarning;
+process.emitWarning = function (warning: string | Error, ...args: any[]) {
+  if (
+    (typeof warning === 'string' && warning.includes('punycode')) ||
+    (warning instanceof Error && warning.message.includes('punycode')) ||
+    args[0] === 'DEP0040' ||
+    args[1] === 'DEP0040'
+  ) {
+    return;
+  }
+  return originalEmitWarning.call(process, warning, ...args as any);
+};
+
 import { Command } from 'commander';
 import { initCommand } from './commands/init';
 import { syncCommand } from './commands/sync';
