@@ -1,5 +1,7 @@
 Talk to your codebase.
 
+![Saturday](Saturday.png)
+
 Saturday is a small CLI that indexes a project into Qdrant, exposes a local search
 webhook, and connects it to a Vapi voice assistant. The command UX uses Clack for
 interactive setup and cleaner progress output.
